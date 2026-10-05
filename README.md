@@ -110,6 +110,7 @@ Dark by default. The **Light / Dark** button in the header switches theme; the c
 3. On your phone, open the Release, download the `.apk`, and allow installs from that app when Android asks.
 
 Notes:
+
 - Builds are signed with the fixed debug key in `android-signing/` and get a rising version number, so a new APK installs as an update and keeps your data. See `android-signing/README.md` for why this key is committed.
 - In the app, **Export** opens the Android share sheet (save to Files, Drive, email). **Import** opens the file picker.
 - App data lives inside the app on that phone. It is separate from any browser copy, and uninstalling the app deletes it. Export a backup first.
