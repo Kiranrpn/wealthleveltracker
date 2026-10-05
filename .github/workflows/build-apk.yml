@@ -39,15 +39,9 @@ jobs:
         run: npx cap add android
 
       - name: Generate app icons and splash
-        run: |
-          cp assets/logo.png assets/icon-only.png
-          cp assets/logo.png assets/icon-foreground.png
-          cp assets/logo.png assets/icon-background.png
-          cp assets/logo.png assets/splash.png
-          cp assets/logo.png assets/splash-dark.png
-          npx @capacitor/assets generate --android \
-            --iconBackgroundColor '#0b0f19' --iconBackgroundColorDark '#0b0f19' \
-            --splashBackgroundColor '#0b0f19' --splashBackgroundColorDark '#0b0f19'
+        # assets/ holds the prepared layers: icon-only (legacy), icon-foreground and
+        # icon-background (adaptive), splash and splash-dark.
+        run: npx @capacitor/assets generate --android
 
       - name: Sync web build into Android
         run: npx cap sync android

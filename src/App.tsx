@@ -176,7 +176,8 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
       </a>
       <header className="sticky top-0 z-40 border-b border-line bg-bg/90 backdrop-blur">
         <div className="mx-auto max-w-5xl px-4 pt-3">
-          <h1 className="text-xl font-black tracking-tight text-accent">
+          <h1 className="flex items-center gap-2 text-xl font-black tracking-tight text-accent">
+            <img src="./icon-192.png" alt="" width="28" height="28" className="rounded-lg" />
             {data.settings.labels.appName}
           </h1>
         </div>

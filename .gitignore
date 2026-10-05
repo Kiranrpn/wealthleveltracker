@@ -38,5 +38,3 @@ pnpm-debug.log*
 
 # Capacitor native project (generated in CI)
 android/
-assets/icon-*.png
-assets/splash*.png

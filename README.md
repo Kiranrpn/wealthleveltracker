@@ -136,6 +136,17 @@ npm run format
 - **Locally:** `npm install && npm run dev`, then open http://localhost:5173.
 - **On the web (any device):** one-time setup in GitHub: **Settings > Pages > Build and deployment > Source: GitHub Actions**. After that, every push runs `.github/workflows/deploy-pages.yml` and the app is live at `https://<your-username>.github.io/wealthleveltracker/`. Re-run the workflow from the **Actions** tab after enabling Pages the first time.
 
+## App icon
+
+The icon artwork is in `branding/icon-original.png`. The files the app actually uses were generated from it: the "?" and coin cut out of the mockup tile, without the gradient or the corner sparkle.
+
+- `assets/icon-only.png`: full icon (legacy Android launchers)
+- `assets/icon-foreground.png` + `assets/icon-background.png`: Android adaptive icon layers (any mask shape)
+- `assets/splash.png`, `assets/splash-dark.png`: launch screen on the app's dark background
+- `public/icon-192.png`, `public/apple-touch-icon.png`: browser tab and home-screen icons
+
+The APK workflow turns these into every Android size with `npx @capacitor/assets generate --android`.
+
 ## Android APK
 
 `.github/workflows/build-apk.yml` wraps the web app with Capacitor and builds an installable APK.
