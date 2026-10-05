@@ -160,7 +160,7 @@ function BudgetSection({
       <Card title="Budget & levels">
         <div className="grid gap-3 sm:grid-cols-2">
           <NumInput
-            label="Monthly survival budget, B (₹)"
+            label="Monthly survival budget (₹)"
             value={d.b}
             onChange={set("b")}
             error={s.errors.monthlySurvivalB}
@@ -174,7 +174,7 @@ function BudgetSection({
           />
         </div>
         <h3 className="mb-2 mt-5 text-sm font-semibold">
-          Level thresholds (years of annual B in liquid buckets)
+          Level thresholds (years of annual survival budget held in Emergency + Corpus - Liquid)
         </h3>
         <div className="grid gap-3 sm:grid-cols-3">
           <NumInput
@@ -325,7 +325,7 @@ function SplitSection({ settings, onSave }: { settings: Settings; onSave: (s: Se
 
 const MODE_LABEL: Record<TargetMode, string> = {
   NONE: "No goal",
-  MONTHS_OF_B: "Months of B",
+  MONTHS_OF_B: "Months of survival budget",
   FIXED: "Fixed amount",
   NEXT_LEVEL: "Enough for next level",
 };
@@ -371,7 +371,7 @@ function GoalsSection({ settings, onSave }: { settings: Settings; onSave: (s: Se
       <Card title="Bucket goals">
         <p className="mb-3 text-sm text-muted">
           What each bucket should hold. Balances show how far short you are, or the surplus you can
-          move elsewhere. Months of B follow your survival budget automatically.
+          move elsewhere. Goals in months follow your survival budget automatically.
         </p>
         <div className="space-y-3">
           {BUCKETS.map((b) => {

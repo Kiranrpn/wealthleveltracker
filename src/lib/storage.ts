@@ -1,4 +1,4 @@
-import { defaultSettings, emptyAppData } from "./defaults";
+import { defaultSettings, emptyAppData, LEGACY_DEFAULTS } from "./defaults";
 import { appDataSchema, formatZodIssues } from "./schema";
 import { todayISO } from "./format";
 import { BUCKETS, type AppData, type Holding, type Settings, type Transaction } from "./types";
@@ -105,6 +105,27 @@ function migrateV1(raw: Record<string, unknown>, todayIso: string): Record<strin
   };
 }
 
+function sameSplit(a: Record<string, unknown>, b: Record<string, number>): boolean {
+  return Object.keys(b).every((k) => a[k] === b[k]);
+}
+
+/**
+ * Replaces settings that still hold an older version's default with the current default.
+ * Anything the user changed is left alone.
+ */
+function upgradeUntouchedDefaults(settings: Settings): void {
+  const d = defaultSettings();
+  for (const [bucket, old] of Object.entries(LEGACY_DEFAULTS.bucketLabels)) {
+    const b = bucket as keyof Settings["labels"]["buckets"];
+    if (settings.labels.buckets[b] === old) settings.labels.buckets[b] = d.labels.buckets[b];
+  }
+  for (const [level, old] of Object.entries(LEGACY_DEFAULTS.splits)) {
+    const lv = level as keyof Settings["splits"];
+    const current = settings.splits[lv] as unknown;
+    if (isRecord(current) && old && sameSplit(current, old)) settings.splits[lv] = d.splits[lv];
+  }
+}
+
 /**
  * Brings raw parsed JSON up to the current schema.
  * - No schemaVersion (pre-release) or 1: migrated to the v2 ledger (see migrateV1).
@@ -135,6 +156,7 @@ export function migrate(raw: unknown, todayIso: string = todayISO()): Result<unk
       ...(body.settings.splits as Settings["splits"]),
     };
   }
+  upgradeUntouchedDefaults(settings);
   return {
     ok: true,
     data: {

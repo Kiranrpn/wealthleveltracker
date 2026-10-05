@@ -74,9 +74,17 @@ export interface AdjustTx extends TxBase {
 export type Transaction = IncomeTx | TransferTx | SpendTx | AdjustTx;
 export type TxKind = Transaction["kind"];
 
+/**
+ * CASH: a bank or cash balance (no separate invested amount).
+ * INVESTMENT: something bought, with an invested amount and a current value.
+ */
+export type HoldingKind = "CASH" | "INVESTMENT";
+
 /** Where part of a bucket's money is parked. The bucket's balance lives in the ledger. */
 export interface Holding {
   id: string;
+  /** Missing on older data: treated as INVESTMENT. */
+  kind?: HoldingKind;
   name: string; // e.g. "Nifty 50 index fund"
   bucket: Bucket;
   type: string; // free text, e.g. "Mutual fund", "FD", "Land"

@@ -4,7 +4,7 @@ import { formatDate, formatINR, formatINRShort, formatPct, parseAmount } from ".
 import type { HoldingAddMode, HoldingRemoveMode } from "../lib/ledger";
 import { BUCKETS, type Bucket, type Holding, type Settings } from "../lib/types";
 import { HoldingForm, type Preset } from "./HoldingForm";
-import { Card, ConfirmDialog } from "./ui";
+import { Card, Chevron, ConfirmDialog } from "./ui";
 
 export type HoldingsIntent = { bucket: Bucket; addValue?: number } | null;
 
@@ -39,17 +39,30 @@ export function HoldingsPage({
   const [quickValue, setQuickValue] = useState("");
   const [quickError, setQuickError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Holding | null>(null);
+  const [expanded, setExpanded] = useState<Set<Bucket>>(new Set());
+  const toggle = (b: Bucket) =>
+    setExpanded((s) => {
+      const n = new Set(s);
+      if (n.has(b)) n.delete(b);
+      else n.add(b);
+      return n;
+    });
   const formRef = useRef<HTMLDivElement>(null);
   const matches = Object.fromEntries(reconcile(bal, holdings).map((m) => [m.bucket, m]));
 
   // Arriving from the mismatch bar: open the add form for that bucket, or jump to it.
   useEffect(() => {
     if (!intent) return;
+    setExpanded((s) => new Set(s).add(intent.bucket));
     if (intent.addValue && intent.addValue > 0) {
       setEditing({ holding: null, preset: { bucket: intent.bucket, value: intent.addValue } });
       setTimeout(() => formRef.current?.scrollIntoView?.({ block: "start" }), 0);
     } else {
-      document.getElementById(`bucket-${intent.bucket}`)?.scrollIntoView?.({ block: "start" });
+      setTimeout(
+        () =>
+          document.getElementById(`bucket-${intent.bucket}`)?.scrollIntoView?.({ block: "start" }),
+        0,
+      );
     }
     clearIntent();
   }, [intent, clearIntent]);
@@ -70,6 +83,7 @@ export function HoldingsPage({
 
   const startAdd = (bucket: Bucket) => {
     const m = matches[bucket];
+    setExpanded((s) => new Set(s).add(bucket));
     setEditing({ holding: null, preset: { bucket, value: m.diff > 0 ? m.diff : undefined } });
     setTimeout(() => formRef.current?.scrollIntoView?.({ block: "start" }), 0);
   };
@@ -130,23 +144,35 @@ export function HoldingsPage({
           .filter((h) => h.bucket === b)
           .sort((x, y) => y.currentValue - x.currentValue);
         const empty = items.length === 0 && m.ledger === 0;
+        const isOpen = expanded.has(b);
         return (
           <section
             key={b}
             id={`bucket-${b}`}
             aria-label={labels.buckets[b]}
-            className={`card scroll-mt-32 ${empty ? "py-3" : ""}`}
+            className="card scroll-mt-32 py-3 sm:py-4"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <h2 className="font-semibold">{labels.buckets[b]}</h2>
-                {!empty && (
-                  <p className="text-xs text-muted">
-                    Ledger {formatINRShort(m.ledger)} · In holdings {formatINRShort(m.recorded)}
-                  </p>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <h2 className="min-w-0 basis-full sm:basis-0 sm:flex-1">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 text-left"
+                  aria-expanded={isOpen}
+                  aria-controls={`bucket-body-${b}`}
+                  onClick={() => toggle(b)}
+                >
+                  <Chevron open={isOpen} />
+                  <span className="min-w-0">
+                    <span className="block font-semibold">{labels.buckets[b]}</span>
+                    <span className="block text-xs font-normal text-muted">
+                      {empty
+                        ? "Empty"
+                        : `${items.length} holding${items.length === 1 ? "" : "s"} · Ledger ${formatINRShort(m.ledger)} · In holdings ${formatINRShort(m.recorded)}`}
+                    </span>
+                  </span>
+                </button>
+              </h2>
+              <div className="ml-6 flex flex-wrap items-center gap-2 sm:ml-0">
                 {m.state === "MATCHED" && !empty && (
                   <span className="rounded-full bg-ok/15 px-2 py-0.5 text-xs font-medium text-ok">
                     Matched
@@ -168,134 +194,145 @@ export function HoldingsPage({
                   onClick={() => startAdd(b)}
                   aria-label={`Add holding to ${labels.buckets[b]}`}
                 >
-                  + Add holding
+                  + Add
                 </button>
               </div>
             </div>
 
-            {m.state === "EXCESS" && (
-              <p className="mt-2 text-xs text-danger">
-                The ledger says {labels.buckets[b]} holds less than these holdings are worth. Update
-                a holding&apos;s value, remove one you sold, or add the missing money with Adjust
-                balance on the Ledger tab.
-              </p>
-            )}
+            <div id={`bucket-body-${b}`} hidden={!isOpen}>
+              {m.state === "EXCESS" && (
+                <p className="mt-2 text-xs text-danger">
+                  The ledger says {labels.buckets[b]} holds less than these holdings are worth.
+                  Update a holding&apos;s value, remove one you sold, or add the missing money with
+                  Adjust balance on the Ledger tab.
+                </p>
+              )}
 
-            {items.length > 0 && (
-              <ul className="mt-3 space-y-2">
-                {items.map((h) => {
-                  const gain = roundMoney(h.currentValue - h.investedAmount);
-                  const gainPct = safeDivide(gain, h.investedAmount);
-                  const stale = daysBetween(h.lastUpdated, today) > settings.staleDays;
-                  return (
-                    <li key={h.id} className="rounded-xl border border-line bg-raised/40 p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-medium">{h.name}</p>
-                          <p className="text-xs text-muted">
-                            {[h.type, h.whereParked].filter(Boolean).join(" · ") || "No details"}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-semibold tabular-nums">{formatINR(h.currentValue)}</p>
-                          <p
-                            className={`text-xs tabular-nums ${gain >= 0 ? "text-ok" : "text-danger"}`}
-                          >
-                            {gain >= 0 ? "+" : ""}
-                            {formatINRShort(gain)}
-                            {h.investedAmount > 0 && <> ({formatPct(gainPct)})</>} on{" "}
-                            {formatINRShort(h.investedAmount)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                        <p className={`text-xs ${stale ? "font-medium text-warn" : "text-muted"}`}>
-                          Updated {formatDate(h.lastUpdated)}
-                          {stale && ` · not updated in ${settings.staleDays}+ days`}
-                        </p>
-                        {quickId === h.id ? (
-                          <form
-                            className="flex flex-wrap items-center gap-1"
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              saveQuick(h);
-                            }}
-                          >
-                            <label className="sr-only" htmlFor={`quick-${h.id}`}>
-                              New current value for {h.name}
-                            </label>
-                            <input
-                              id={`quick-${h.id}`}
-                              className="input w-32 py-1 text-right"
-                              inputMode="decimal"
-                              autoFocus
-                              value={quickValue}
-                              aria-invalid={Boolean(quickError)}
-                              onChange={(e) => setQuickValue(e.target.value)}
-                              onKeyDown={(e) => e.key === "Escape" && setQuickId(null)}
-                            />
-                            <button type="submit" className="btn btn-sm btn-primary">
-                              Save
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              onClick={() => setQuickId(null)}
-                            >
-                              Cancel
-                            </button>
-                            {quickError && (
-                              <span className="error w-full" role="alert">
-                                {quickError}
-                              </span>
-                            )}
-                          </form>
-                        ) : (
-                          <div className="flex gap-1">
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              aria-label={`Update current value of ${h.name}`}
-                              onClick={() => {
-                                setQuickId(h.id);
-                                setQuickValue(String(h.currentValue));
-                                setQuickError(null);
-                              }}
-                            >
-                              Update value
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm"
-                              aria-label={`Edit ${h.name}`}
-                              onClick={() => {
-                                setEditing({ holding: h });
-                                setTimeout(
-                                  () => formRef.current?.scrollIntoView?.({ block: "start" }),
-                                  0,
-                                );
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              className="btn btn-sm btn-danger"
-                              aria-label={`Remove ${h.name}`}
-                              onClick={() => setDeleting(h)}
-                            >
-                              Remove
-                            </button>
+              {items.length > 0 && (
+                <ul className="mt-3 space-y-2">
+                  {items.map((h) => {
+                    const isCash = h.kind === "CASH";
+                    const gain = roundMoney(h.currentValue - h.investedAmount);
+                    const gainPct = safeDivide(gain, h.investedAmount);
+                    const stale = daysBetween(h.lastUpdated, today) > settings.staleDays;
+                    return (
+                      <li key={h.id} className="rounded-xl border border-line bg-raised/40 p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-medium">{h.name}</p>
+                            <p className="text-xs text-muted">
+                              {(isCash ? [h.whereParked] : [h.type, h.whereParked])
+                                .filter(Boolean)
+                                .join(" · ") || "No details"}
+                            </p>
                           </div>
-                        )}
-                      </div>
-                      {h.notes && <p className="mt-1 text-xs text-muted">{h.notes}</p>}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {empty && <p className="mt-1 text-xs text-muted">Nothing in this bucket yet.</p>}
+                          <div className="text-right">
+                            <p className="font-semibold tabular-nums">
+                              {formatINR(h.currentValue)}
+                            </p>
+                            <p
+                              className={`text-xs tabular-nums ${gain >= 0 ? "text-ok" : "text-danger"}`}
+                            >
+                              {gain >= 0 ? "+" : ""}
+                              {formatINRShort(gain)}
+                              {h.investedAmount > 0 && <> ({formatPct(gainPct)})</>} on{" "}
+                              {formatINRShort(h.investedAmount)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                          <p
+                            className={`text-xs ${stale ? "font-medium text-warn" : "text-muted"}`}
+                          >
+                            Updated {formatDate(h.lastUpdated)}
+                            {stale && ` · not updated in ${settings.staleDays}+ days`}
+                          </p>
+                          {quickId === h.id ? (
+                            <form
+                              className="flex flex-wrap items-center gap-1"
+                              onSubmit={(e) => {
+                                e.preventDefault();
+                                saveQuick(h);
+                              }}
+                            >
+                              <label className="sr-only" htmlFor={`quick-${h.id}`}>
+                                New {isCash ? "balance" : "current value"} for {h.name}
+                              </label>
+                              <input
+                                id={`quick-${h.id}`}
+                                className="input w-32 py-1 text-right"
+                                inputMode="decimal"
+                                autoFocus
+                                value={quickValue}
+                                aria-invalid={Boolean(quickError)}
+                                onChange={(e) => setQuickValue(e.target.value)}
+                                onKeyDown={(e) => e.key === "Escape" && setQuickId(null)}
+                              />
+                              <button type="submit" className="btn btn-sm btn-primary">
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                onClick={() => setQuickId(null)}
+                              >
+                                Cancel
+                              </button>
+                              {quickError && (
+                                <span className="error w-full" role="alert">
+                                  {quickError}
+                                </span>
+                              )}
+                            </form>
+                          ) : (
+                            <div className="flex gap-1">
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                aria-label={`Update current value of ${h.name}`}
+                                onClick={() => {
+                                  setQuickId(h.id);
+                                  setQuickValue(String(h.currentValue));
+                                  setQuickError(null);
+                                }}
+                              >
+                                {isCash ? "Update balance" : "Update value"}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm"
+                                aria-label={`Edit ${h.name}`}
+                                onClick={() => {
+                                  setEditing({ holding: h });
+                                  setTimeout(
+                                    () => formRef.current?.scrollIntoView?.({ block: "start" }),
+                                    0,
+                                  );
+                                }}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-danger"
+                                aria-label={`Remove ${h.name}`}
+                                onClick={() => setDeleting(h)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        {h.notes && <p className="mt-1 text-xs text-muted">{h.notes}</p>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {items.length === 0 && (
+                <p className="mt-2 text-xs text-muted">No holdings recorded in this bucket yet.</p>
+              )}
+            </div>
           </section>
         );
       })}

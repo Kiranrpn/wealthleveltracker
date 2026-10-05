@@ -16,43 +16,43 @@ _Add screenshots here (`docs/dashboard.png`, `docs/ledger.png`)._
 
 Six buckets, each with a running balance:
 
-| Bucket       | What it is for                            | Counts toward level |
-| ------------ | ----------------------------------------- | ------------------- |
-| Survival     | Money for this month's essential spending | No                  |
-| Emergency    | Emergency fund                            | **Yes**             |
-| C1 Liquid    | Liquid corpus (index funds, FDs, cash)    | **Yes**             |
-| C2a Business | Business stakes                           | No                  |
-| C2b Illiquid | Land, locked-in assets                    | No                  |
-| Splurge      | Guilt-free spending                       | No                  |
+| Bucket                | What it is for                            | Counts toward level |
+| --------------------- | ----------------------------------------- | ------------------- |
+| Survival              | Money for this month's essential spending | No                  |
+| Emergency             | Emergency fund                            | **Yes**             |
+| Corpus - Liquid       | Liquid corpus (index funds, FDs, cash)    | **Yes**             |
+| Corpus - Own Business | Your business stakes                      | No                  |
+| Corpus - Illiquid     | Land, locked-in assets                    | No                  |
+| Splurge               | Guilt-free spending                       | No                  |
 
 A bucket's balance is the sum of its ledger entries. There are four kinds:
 
-- **Income**: split across buckets. The split for your current level fills in automatically; you can change any bucket's amount for that one entry (for example a bonus 100% to C1 Liquid). The amounts must add up to the income.
+- **Income**: split across buckets. The split for your current level fills in automatically; you can change any bucket's amount for that one entry (for example a bonus 100% to Corpus - Liquid). The amounts must add up to the income.
 - **Spend**: takes money out of one bucket. You cannot spend more than the bucket holds.
 - **Move money**: moves an amount from one bucket to another (reallocation). Same rule: no overdrawing.
 - **Adjust balance**: opening balances (money you had before starting) and corrections.
 
-Default income splits (edit them in Settings > Income split):
+Default income splits (edit them in Settings > Income split). The savings share of income by level is 45 / 55 / 60 / 55%; savings are then split between liquid (Emergency at L0, Corpus - Liquid after) and Corpus - Illiquid:
 
-| Level | Survival | Emergency | C1 Liquid | Splurge |
-| ----- | -------- | --------- | --------- | ------- |
-| L0    | 50%      | 45%       | 0%        | 5%      |
-| L1    | 40%      | 0%        | 55%       | 5%      |
-| L2    | 35%      | 0%        | 60%       | 5%      |
-| L3    | 35%      | 0%        | 55%       | 10%     |
+| Level | Liquid : Illiquid (of savings) | Survival | Emergency | Corpus - Liquid | Corpus - Illiquid | Splurge |
+| ----- | ------------------------------ | -------- | --------- | --------------- | ----------------- | ------- |
+| L0    | 100 : 0                        | 50%      | 45%       | 0%              | 0%                | 5%      |
+| L1    | 80 : 20                        | 40%      | 0%        | 44%             | 11%               | 5%      |
+| L2    | 60 : 40                        | 35%      | 0%        | 36%             | 24%               | 5%      |
+| L3    | 40 : 60                        | 35%      | 0%        | 22%             | 33%               | 10%     |
 
-The savings shares (45 / 55 / 60%) come from the original spec. At L0 savings build the emergency fund; from L1 they grow the corpus.
+Corpus - Illiquid does not count toward your level, so a larger illiquid share slows the climb to the next level.
 
 ### Bucket goals
 
-Each bucket can have a goal: none, a fixed amount, a number of months of B, or (C1 Liquid only) "enough for the next level". Balances then show either a yellow box with how much is short, or a green "Goal achieved" box with the surplus and a **Move surplus** button that opens a pre-filled move.
+Each bucket can have a goal: none, a fixed amount, a number of months of survival budget, or (Corpus - Liquid only) "enough for the next level". Balances then show either a yellow box with how much is short, or a green "Goal achieved" box with the surplus and a **Move surplus** button that opens a pre-filled move.
 
-| Bucket            | Default goal                                                           |
-| ----------------- | ---------------------------------------------------------------------- |
-| Survival          | 1 month of B                                                           |
-| Emergency         | 15 months of B (1.25 years, the line that marks L1)                    |
-| C1 Liquid         | Enough, with Emergency, to reach the next level (at L3: to stay there) |
-| C2a, C2b, Splurge | No goal                                                                |
+| Bucket                          | Default goal                                                           |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| Survival                        | 1 month of survival budget                                             |
+| Emergency                       | 15 months of survival budget (1.25 years, the line that marks L1)      |
+| Corpus - Liquid                 | Enough, with Emergency, to reach the next level (at L3: to stay there) |
+| Own Business, Illiquid, Splurge | No goal                                                                |
 
 Change them in Settings > Bucket goals.
 
@@ -64,19 +64,18 @@ Every entry lives in the **Transactions** tab: grouped by month with income and 
 
 Holdings show where a bucket's money is parked (which fund, which bank). The ledger stays the single source of truth, so nothing is counted twice:
 
-- Adding a holding: choose "bought with money already in the bucket" (balance unchanged) or "owned before I started" (its value is added as an opening balance).
+- Adding a holding: first pick **Cash balance** (just a name, bank and balance) or **Investment** (invested amount and current value). Then "already in the bucket" or "owned before I started" (its value is added as an opening balance).
+- For a holding bought with bucket money, the **invested amount** is capped at the bucket's money not yet recorded in holdings. Current value above or below that is posted as a gain or loss.
 - Updating a holding's value posts the gain or loss to its bucket automatically.
 - Moving a holding to another bucket moves its value.
 - Removing a holding: "sold, keep the cash" (balance unchanged) or "remove its value".
-- A holding "bought with bucket money" cannot be worth more than the part of the bucket not yet recorded in holdings. Anything above that must be added as new money, so holdings never silently exceed the ledger.
-
-The Holdings page is grouped by bucket: ledger balance, value in holdings, gain or loss per holding, stale warnings, and a status per bucket (Matched, not in holdings, or over ledger). Whenever a bucket's ledger and holdings differ, a bar at the top of every page says so until they match; tapping a bucket opens a pre-filled "Add holding".
+  The Holdings page is grouped by bucket, each collapsed by default with its totals in the header: ledger balance, value in holdings, gain or loss per holding, stale warnings, and a status per bucket (Matched, not in holdings, or over ledger). Whenever a bucket's ledger and holdings differ, a bar at the top of every page says so until they match; tapping a bucket opens a pre-filled "Add holding".
 
 ### The level formula
 
-1. **B** is your monthly survival budget. Annual B = B x 12.
-2. **Liquid total** = Emergency balance + C1 Liquid balance.
-3. **Coverage ratio** = Liquid total / Annual B. "12.4x" means your liquid money covers 12.4 years of survival spending.
+1. **Survival budget** is your essential monthly spend. Annual survival budget = monthly x 12.
+2. **Liquid total** = Emergency balance + Corpus - Liquid balance.
+3. **Coverage ratio** = Liquid total / annual survival budget. "12.4x" means your liquid money covers 12.4 years of survival spending.
 
 | Level | Coverage ratio (defaults) | Meaning                                                           |
 | ----- | ------------------------- | ----------------------------------------------------------------- |
@@ -86,9 +85,9 @@ The Holdings page is grouped by bucket: ledger balance, value in holdings, gain 
 | L3    | 35 and above              | Corpus can cover survival. Salary job is a choice. **YOU DID IT** |
 
 - A value exactly on a boundary belongs to the higher level.
-- **Gap to next level** = next level's ratio x Annual B, minus Liquid total.
+- **Gap to next level** = next level's ratio x annual survival budget, minus Liquid total.
 - **Progress** = how far your ratio is between the current level's floor and the next one.
-- **What-if**: type a new monthly B to see if a lifestyle upgrade would drop you a level, and how much extra liquid money you would need to stay.
+- **What-if**: type a new monthly survival budget to see if a lifestyle upgrade would drop you a level, and how much extra liquid money you would need to stay.
 - **Coverage history**: one point per month. The axis stops just above the next threshold you have not reached, so early progress is visible.
 
 ### Settings

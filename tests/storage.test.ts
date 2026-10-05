@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { describe, expect, it } from "vitest";
 import { defaultSettings, emptyAppData } from "../src/lib/defaults";
 import { holdingSchema, isValidIsoDate, settingsSchema } from "../src/lib/schema";
@@ -217,6 +218,35 @@ describe("migration from v1 (holdings as balances)", () => {
     const r = importJSON(JSON.stringify({ settings: { monthlySurvivalB: 40_000 } }));
     expect(r.ok && r.data.settings.labels.buckets.SURVIVAL).toBe("Survival");
     expect(r.ok && r.data.transactions).toEqual([]);
+  });
+
+  it("upgrades labels and splits still on an older default, keeps customised ones", () => {
+    const data = sampleData() as unknown as { settings: Record<string, any> };
+    data.settings.labels.buckets.C1_LIQUID = "C1 Liquid";
+    data.settings.labels.buckets.C2B_ILLIQUID = "My land";
+    data.settings.splits.L1 = {
+      SURVIVAL: 0.4,
+      EMERGENCY: 0,
+      C1_LIQUID: 0.55,
+      C2A_BUSINESS: 0,
+      C2B_ILLIQUID: 0,
+      SPLURGE: 0.05,
+    };
+    data.settings.splits.L2 = {
+      SURVIVAL: 0.3,
+      EMERGENCY: 0,
+      C1_LIQUID: 0.65,
+      C2A_BUSINESS: 0,
+      C2B_ILLIQUID: 0,
+      SPLURGE: 0.05,
+    };
+    const r = importJSON(JSON.stringify(data));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.settings.labels.buckets.C1_LIQUID).toBe("Corpus - Liquid");
+    expect(r.data.settings.labels.buckets.C2B_ILLIQUID).toBe("My land");
+    expect(r.data.settings.splits.L1.C2B_ILLIQUID).toBe(0.11);
+    expect(r.data.settings.splits.L2.C1_LIQUID).toBe(0.65);
   });
 
   it("a saved split replaces the default split whole", () => {

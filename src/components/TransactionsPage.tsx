@@ -4,7 +4,7 @@ import { formatDate, formatINR, formatINRShort, formatMonth } from "../lib/forma
 import { txTotal } from "../lib/ledger";
 import { BUCKETS, type Bucket, type Settings, type Transaction, type TxKind } from "../lib/types";
 import { describeTx, KIND_LABEL } from "./txText";
-import { Card, ConfirmDialog } from "./ui";
+import { Card, Chevron, ConfirmDialog } from "./ui";
 
 const KIND_STYLE: Record<TxKind, string> = {
   INCOME: "bg-ok/15 text-ok",
@@ -228,12 +228,7 @@ export function TransactionsPage({ transactions, settings, today, onEdit, onDele
                           aria-controls={`tx-${tx.id}`}
                           onClick={() => toggle(tx.id)}
                         >
-                          <span
-                            aria-hidden="true"
-                            className={`text-muted transition-transform ${isOpen ? "rotate-90" : ""}`}
-                          >
-                            ›
-                          </span>
+                          <Chevron open={isOpen} />
                           <span
                             className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ${KIND_STYLE[tx.kind]}`}
                           >

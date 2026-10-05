@@ -199,3 +199,21 @@ export function Alert({
   }[tone];
   return <div className={`rounded-lg border px-3 py-2 text-sm ${styles}`}>{children}</div>;
 }
+
+/** Right-pointing chevron that turns down when open. */
+export function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className={`h-4 w-4 shrink-0 text-muted transition-transform ${open ? "rotate-90" : ""}`}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M6 3l5 5-5 5" />
+    </svg>
+  );
+}

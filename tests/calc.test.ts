@@ -230,19 +230,30 @@ describe("what-if", () => {
 });
 
 describe("income split", () => {
-  it("default splits are complete and keep the spec's savings shares", () => {
+  it("default splits are complete; savings split liquid/illiquid 100/0, 80/20, 60/40, 40/60", () => {
     const s = defaultSettings().splits;
+    const ratio = (lv: "L0" | "L1" | "L2" | "L3") => {
+      const x = s[lv];
+      const saved = x.EMERGENCY + x.C1_LIQUID + x.C2B_ILLIQUID + x.C2A_BUSINESS;
+      return [
+        roundMoney(((x.EMERGENCY + x.C1_LIQUID) / saved) * 100),
+        roundMoney((x.C2B_ILLIQUID / saved) * 100),
+        roundMoney(saved * 100),
+      ];
+    };
     for (const lv of ["L0", "L1", "L2", "L3"] as const) expect(isCompleteSplit(s[lv])).toBe(true);
-    expect(s.L0.EMERGENCY).toBe(0.45);
-    expect(s.L1.C1_LIQUID).toBe(0.55);
-    expect(s.L2.C1_LIQUID).toBe(0.6);
+    expect(ratio("L0")).toEqual([100, 0, 45]);
+    expect(ratio("L1")).toEqual([80, 20, 55]);
+    expect(ratio("L2")).toEqual([60, 40, 60]);
+    expect(ratio("L3")).toEqual([40, 60, 55]);
   });
 
   it("splits 1,00,000 by the L1 split exactly", () => {
     const parts = splitAmount(100_000, defaultSettings().splits.L1);
     expect(parts).toMatchObject({
       SURVIVAL: 40_000,
-      C1_LIQUID: 55_000,
+      C1_LIQUID: 44_000,
+      C2B_ILLIQUID: 11_000,
       SPLURGE: 5_000,
       EMERGENCY: 0,
     });

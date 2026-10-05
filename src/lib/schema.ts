@@ -43,6 +43,7 @@ export const bucketSchema = z.enum(BUCKETS, {
 
 export const holdingSchema = z.object({
   id: z.string().min(1, "id is required"),
+  kind: z.enum(["CASH", "INVESTMENT"]).optional(),
   name: label("Name", 120),
   bucket: bucketSchema,
   type: z.string().trim().max(80, "Type must be 80 characters or fewer"),

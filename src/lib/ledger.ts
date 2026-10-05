@@ -217,7 +217,8 @@ export function buildAdjust(input: AdjustInput): Built<AdjustTx> {
 
 /**
  * How a new holding affects its bucket:
- * - FUNDED: bought with money already in the bucket. No ledger change.
+ * - FUNDED: bought with money already in the bucket. Only the gain or loss (current value
+ *   minus invested amount) is posted.
  * - ADD_VALUE: an asset the ledger does not know about yet. Its value is added to the bucket.
  */
 export type HoldingAddMode = "FUNDED" | "ADD_VALUE";
@@ -230,8 +231,9 @@ export type HoldingAddMode = "FUNDED" | "ADD_VALUE";
 export type HoldingRemoveMode = "KEEP_CASH" | "REMOVE_VALUE";
 
 /**
- * A holding bought with bucket money cannot be worth more than the part of the bucket not yet
- * recorded in holdings, or the holdings would exceed the ledger. Returns an error message or null.
+ * A holding bought with bucket money cannot cost more than the part of the bucket not yet
+ * recorded in holdings. The cap is on the invested amount: what the holding is worth above
+ * that is a gain, posted separately. Returns an error message or null.
  * `excludeId` leaves out the holding being edited.
  */
 export function fundedHoldingError(
@@ -245,9 +247,15 @@ export function fundedHoldingError(
     .filter((x) => x.bucket === h.bucket && x.id !== excludeId)
     .reduce((s, x) => s + safeAmount(x.currentValue), 0);
   const free = roundMoney(Math.max(0, bal[h.bucket] - recorded));
-  const value = roundMoney(safeAmount(h.currentValue));
-  if (value <= free + EPS) return null;
-  return `Only ${fmt(free)} of ${labels[h.bucket]} is not yet recorded in holdings. Choose "Owned before I started" to add the extra ${fmt(roundMoney(value - free))} as new money, or record the income first.`;
+  const cost = roundMoney(safeAmount(costOf(h)));
+  if (cost <= free + EPS) return null;
+  const what = h.kind === "CASH" ? "balance" : "invested amount";
+  return `Only ${fmt(free)} of ${labels[h.bucket]} is not yet recorded in holdings, so the ${what} can be at most that. Choose "Owned before I started" to add the extra ${fmt(roundMoney(cost - free))} as new money, or record the income first.`;
+}
+
+/** What a holding cost out of its bucket: the invested amount, or the balance for cash. */
+export function costOf(h: Holding): number {
+  return h.kind === "CASH" ? h.currentValue : h.investedAmount;
 }
 
 export function holdingAddEffects(
@@ -257,7 +265,22 @@ export function holdingAddEffects(
   newId: () => string,
 ): Transaction[] {
   const value = safeAmount(h.currentValue);
-  if (mode === "FUNDED" || value === 0) return [];
+  if (mode === "FUNDED") {
+    // Bought with bucket money: the cost is already in the ledger; post any gain or loss on top.
+    const delta = roundMoney(value - safeAmount(costOf(h)));
+    if (delta === 0) return [];
+    return [
+      {
+        kind: "ADJUST",
+        id: newId(),
+        date,
+        holdingId: h.id,
+        postings: [{ bucket: h.bucket, amount: delta }],
+        notes: `Value ${delta > 0 ? "gain" : "loss"}: ${h.name}`,
+      },
+    ];
+  }
+  if (value === 0) return [];
   return [
     {
       kind: "ADJUST",

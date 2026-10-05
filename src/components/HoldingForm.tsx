@@ -4,10 +4,11 @@ import { formatINR, parseAmount } from "../lib/format";
 import { fundedHoldingError, type HoldingAddMode } from "../lib/ledger";
 import { fieldErrors, holdingSchema } from "../lib/schema";
 import { newId } from "../lib/storage";
-import { BUCKETS, type Bucket, type Holding, type Labels } from "../lib/types";
+import { BUCKETS, type Bucket, type Holding, type HoldingKind, type Labels } from "../lib/types";
 import { Card, Field } from "./ui";
 
 interface Draft {
+  kind: HoldingKind;
   name: string;
   bucket: Bucket;
   type: string;
@@ -18,9 +19,15 @@ interface Draft {
   notes: string;
 }
 
+export interface Preset {
+  bucket: Bucket;
+  value?: number;
+}
+
 function toDraft(h: Holding | null, today: string, preset?: Preset): Draft {
   const value = preset?.value ? String(preset.value) : "";
   return {
+    kind: h?.kind ?? (h ? "INVESTMENT" : "CASH"),
     name: h?.name ?? "",
     bucket: h?.bucket ?? preset?.bucket ?? "C1_LIQUID",
     type: h?.type ?? "",
@@ -30,11 +37,6 @@ function toDraft(h: Holding | null, today: string, preset?: Preset): Draft {
     lastUpdated: h?.lastUpdated ?? today,
     notes: h?.notes ?? "",
   };
-}
-
-export interface Preset {
-  bucket: Bucket;
-  value?: number;
 }
 
 interface Props {
@@ -60,43 +62,44 @@ export function HoldingForm({
 }: Props) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(initial, today, preset));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const free = roundMoney(Math.max(0, bal[draft.bucket] - parkedByBucket(holdings)[draft.bucket]));
+  const unrecorded = (b: Bucket) => roundMoney(Math.max(0, bal[b] - parkedByBucket(holdings)[b]));
+  const free = unrecorded(draft.bucket);
   // Default to "bought with bucket money" only when the bucket has unrecorded money.
   const [addMode, setAddMode] = useState<HoldingAddMode>(() =>
-    roundMoney(
-      Math.max(
-        0,
-        bal[preset?.bucket ?? "C1_LIQUID"] -
-          parkedByBucket(holdings)[preset?.bucket ?? "C1_LIQUID"],
-      ),
-    ) > 0
-      ? "FUNDED"
-      : "ADD_VALUE",
+    unrecorded(preset?.bucket ?? "C1_LIQUID") > 0 ? "FUNDED" : "ADD_VALUE",
   );
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const isCash = draft.kind === "CASH";
+  const bucketName = labels.buckets[draft.bucket];
 
   function submit(e: FormEvent) {
     e.preventDefault();
+    const value = parseAmount(draft.currentValue);
     const candidate = {
       id: initial?.id ?? newId(),
+      kind: draft.kind,
       name: draft.name,
       bucket: draft.bucket,
-      type: draft.type,
+      type: isCash ? "Cash" : draft.type,
       whereParked: draft.whereParked,
-      investedAmount: parseAmount(draft.investedAmount),
-      currentValue: parseAmount(draft.currentValue),
+      // A cash balance has no separate cost: invested = balance.
+      investedAmount: isCash ? value : parseAmount(draft.investedAmount),
+      currentValue: value,
       lastUpdated: draft.lastUpdated,
       notes: draft.notes.trim() === "" ? undefined : draft.notes,
     };
     const parsed = holdingSchema.safeParse(candidate);
     if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error));
+      const errs = fieldErrors(parsed.error);
+      if (isCash && errs.investedAmount && !errs.currentValue)
+        errs.currentValue = errs.investedAmount;
+      setErrors(errs);
       return;
     }
     if (initial === null && addMode === "FUNDED") {
       const err = fundedHoldingError(parsed.data, bal, holdings, labels.buckets);
       if (err) {
-        setErrors({ currentValue: err });
+        setErrors(isCash ? { currentValue: err } : { investedAmount: err });
         return;
       }
     }
@@ -118,18 +121,22 @@ export function HoldingForm({
     </Field>
   );
 
+  const gain = roundMoney(parseAmount(draft.currentValue) - parseAmount(draft.investedAmount));
+
   return (
     <Card title={initial ? "Edit holding" : "Add holding"}>
       <form onSubmit={submit} noValidate className="grid gap-3 sm:grid-cols-2">
-        <Field label="Name" error={errors.name}>
+        <Field label="What is it?">
           {(p) => (
-            <input
+            <select
               {...p}
               className="input"
-              placeholder="Nifty 50 index fund"
-              value={draft.name}
-              onChange={(e) => set("name", e.target.value)}
-            />
+              value={draft.kind}
+              onChange={(e) => set("kind", e.target.value as HoldingKind)}
+            >
+              <option value="CASH">Cash balance (bank, wallet, cash)</option>
+              <option value="INVESTMENT">Investment (fund, FD, stock, property)</option>
+            </select>
           )}
         </Field>
         <Field
@@ -156,31 +163,58 @@ export function HoldingForm({
             </select>
           )}
         </Field>
-        <Field label="Type" error={errors.type}>
+        <Field label="Name" error={errors.name}>
           {(p) => (
             <input
               {...p}
               className="input"
-              placeholder="Mutual fund, FD, Land"
-              value={draft.type}
-              onChange={(e) => set("type", e.target.value)}
+              placeholder={isCash ? "HDFC savings account" : "Nifty 50 index fund"}
+              value={draft.name}
+              onChange={(e) => set("name", e.target.value)}
             />
           )}
         </Field>
-        <Field label="Where parked" error={errors.whereParked}>
+        <Field
+          label={isCash ? "Bank or where it is kept" : "Where parked"}
+          error={errors.whereParked}
+        >
           {(p) => (
             <input
               {...p}
               className="input"
-              placeholder="Platform, bank or location"
+              placeholder={isCash ? "HDFC, wallet, home" : "Platform, bank or location"}
               value={draft.whereParked}
               onChange={(e) => set("whereParked", e.target.value)}
             />
           )}
         </Field>
-        {money("investedAmount", "Invested amount (₹)")}
-        {money("currentValue", "Current value (₹)")}
-        <Field label="Last updated" error={errors.lastUpdated}>
+
+        {isCash ? (
+          money("currentValue", "Balance (₹)")
+        ) : (
+          <>
+            <Field label="Type" error={errors.type}>
+              {(p) => (
+                <input
+                  {...p}
+                  className="input"
+                  placeholder="Mutual fund, FD, Land"
+                  value={draft.type}
+                  onChange={(e) => set("type", e.target.value)}
+                />
+              )}
+            </Field>
+            {money("investedAmount", "Invested amount (₹)", "What you paid from the bucket")}
+            {money(
+              "currentValue",
+              "Current value (₹)",
+              Number.isFinite(gain) && gain !== 0
+                ? `${gain > 0 ? "Gain" : "Loss"} of ${formatINR(Math.abs(gain))} is posted to ${bucketName}`
+                : "What it is worth today",
+            )}
+          </>
+        )}
+        <Field label="As of" error={errors.lastUpdated}>
           {(p) => (
             <input
               {...p}
@@ -192,11 +226,10 @@ export function HoldingForm({
             />
           )}
         </Field>
+
         {initial === null ? (
           <fieldset className="rounded-lg border border-line p-3 sm:col-span-2">
-            <legend className="px-1 text-sm font-medium">
-              How does this affect the {labels.buckets[draft.bucket]} balance?
-            </legend>
+            <legend className="px-1 text-sm font-medium">Where did the money come from?</legend>
             <div className="space-y-2 text-sm">
               <label className="flex items-start gap-2">
                 <input
@@ -207,8 +240,8 @@ export function HoldingForm({
                   onChange={() => setAddMode("FUNDED")}
                 />
                 <span>
-                  Bought with money already in {labels.buckets[draft.bucket]}. The balance stays the
-                  same. {formatINR(free)} of it is not yet recorded in holdings.
+                  Already in {bucketName}. {formatINR(free)} of it is not yet recorded in holdings,
+                  so the {isCash ? "balance" : "invested amount"} can be up to that.
                 </span>
               </label>
               <label className="flex items-start gap-2">
@@ -220,16 +253,16 @@ export function HoldingForm({
                   onChange={() => setAddMode("ADD_VALUE")}
                 />
                 <span>
-                  Owned before I started this ledger. Add its current value to{" "}
-                  {labels.buckets[draft.bucket]}.
+                  Owned before I started this ledger. Add its {isCash ? "balance" : "current value"}{" "}
+                  to {bucketName}.
                 </span>
               </label>
             </div>
           </fieldset>
         ) : (
           <p className="text-sm text-muted sm:col-span-2">
-            Changing the current value posts the gain or loss to the bucket. Moving it to another
-            bucket moves its value too.
+            Changing the {isCash ? "balance" : "current value"} posts the difference to the bucket.
+            Moving it to another bucket moves its value too.
           </p>
         )}
         <Field label="Notes" error={errors.notes} className="sm:col-span-2">

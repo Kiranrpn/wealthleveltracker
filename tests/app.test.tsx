@@ -41,7 +41,7 @@ describe("App", () => {
 
     // Set B in Settings > Budget & levels.
     await user.click(screen.getByRole("button", { name: "Open Settings" }));
-    const budget = screen.getByLabelText("Monthly survival budget, B (₹)");
+    const budget = screen.getByLabelText("Monthly survival budget (₹)");
     await user.clear(budget);
     await user.type(budget, "50000");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -103,7 +103,7 @@ describe("App", () => {
 
     // Undo the adjustment, then redo it.
     await user.click(screen.getByRole("button", { name: "Undo" }));
-    expect(balanceOf("C1 Liquid")).toBe("₹0");
+    expect(balanceOf("Corpus - Liquid")).toBe("₹0");
     await user.click(screen.getByRole("button", { name: "Adjust balance" }));
     await user.selectOptions(screen.getByLabelText("Bucket"), "C1_LIQUID");
     await user.type(screen.getByLabelText("Amount (₹)"), "685000");
@@ -146,7 +146,8 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App store={memory()} />);
 
-    await user.click(screen.getByRole("button", { name: "Add holding to C1 Liquid" }));
+    await user.click(screen.getByRole("button", { name: "Add holding to Corpus - Liquid" }));
+    await user.selectOptions(screen.getByLabelText("What is it?"), "INVESTMENT");
     await user.type(screen.getByLabelText("Name"), "Index fund");
     await user.type(screen.getByLabelText("Invested amount (₹)"), "100000");
     await user.type(screen.getByLabelText("Current value (₹)"), "100000");
@@ -160,7 +161,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     await user.click(screen.getByRole("link", { name: "Ledger" }));
-    expect(balanceOf("C1 Liquid")).toBe("₹1.1 L");
+    expect(balanceOf("Corpus - Liquid")).toBe("₹1.1 L");
     await user.click(screen.getByRole("link", { name: "Transactions" }));
     expect(screen.getByText("Value gain: Index fund")).toBeInTheDocument();
     expect(screen.getByText("Added holding: Index fund")).toBeInTheDocument();
@@ -202,22 +203,41 @@ describe("holdings reconciliation", () => {
     await user.click(screen.getByRole("button", { name: "Save adjustment" }));
 
     await user.click(screen.getByRole("button", { name: "Emergency: ₹3 L not in holdings" }));
-    expect(screen.getByLabelText("Current value (₹)")).toHaveValue("300000");
-    const value = screen.getByLabelText("Current value (₹)");
-    await user.clear(value);
-    await user.type(value, "350000");
-    await user.type(screen.getByLabelText("Name"), "FD");
-    await user.click(screen.getByRole("button", { name: "Add holding" }));
-    expect(screen.getByText(/Only ₹3,00,000 of Emergency is not yet recorded/)).toBeInTheDocument();
+    // Defaults to a cash balance pre-filled with the unrecorded amount.
+    expect(screen.getByLabelText("What is it?")).toHaveValue("CASH");
+    expect(screen.queryByLabelText("Invested amount (₹)")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Balance (₹)")).toHaveValue("300000");
 
-    await user.clear(value);
-    await user.type(value, "250000");
+    // An investment: the cap is on the invested amount; the current value can be higher (a gain).
+    await user.selectOptions(screen.getByLabelText("What is it?"), "INVESTMENT");
+    await user.type(screen.getByLabelText("Name"), "FD");
+    const invested = screen.getByLabelText("Invested amount (₹)");
+    const current = screen.getByLabelText("Current value (₹)");
+    await user.clear(invested);
+    await user.type(invested, "350000");
     await user.click(screen.getByRole("button", { name: "Add holding" }));
+    expect(screen.getByText(/so the invested amount can be at most that/)).toBeInTheDocument();
+
+    await user.clear(invested);
+    await user.type(invested, "250000");
+    await user.clear(current);
+    await user.type(current, "260000");
+    expect(screen.getByText("Gain of ₹10,000 is posted to Emergency")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add holding" }));
+    // Ledger 3 L + 10 K gain = 3.1 L; holdings 2.6 L -> 50 K still not recorded.
     expect(screen.getByRole("status")).toHaveTextContent("Emergency: ₹50,000 not in holdings");
 
     await user.click(screen.getByRole("button", { name: "Add holding to Emergency" }));
     await user.type(screen.getByLabelText("Name"), "Savings account");
+    expect(screen.getByLabelText("Balance (₹)")).toHaveValue("50000");
     await user.click(screen.getByRole("button", { name: "Add holding" }));
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    // Buckets start collapsed; the header toggles the list.
+    const header = screen.getByRole("button", { name: /^Emergency/, expanded: true });
+    await user.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    const liquid = screen.getByRole("button", { name: /^Corpus - Liquid/ });
+    expect(liquid).toHaveAttribute("aria-expanded", "false");
   });
 });

@@ -58,11 +58,11 @@ export function Dashboard({ data, today, onOpenSettings, onQuickAction }: Props)
         ) : (
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <dt>Monthly B</dt>
+              <dt>Monthly survival budget</dt>
               <dd className="tabular-nums">{formatINR(settings.monthlySurvivalB)}</dd>
             </div>
             <div className="flex justify-between border-t border-line pt-2 font-semibold">
-              <dt>Annual B</dt>
+              <dt>Annual survival budget</dt>
               <dd className="tabular-nums">{formatINR(status.annualB)}</dd>
             </div>
             <div className="flex justify-between">

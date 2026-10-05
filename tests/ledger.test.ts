@@ -37,10 +37,15 @@ describe("income", () => {
     if (!r.ok) return;
     expect(r.tx.postings).toEqual([
       { bucket: "SURVIVAL", amount: 40_000 },
-      { bucket: "C1_LIQUID", amount: 55_000 },
+      { bucket: "C1_LIQUID", amount: 44_000 },
+      { bucket: "C2B_ILLIQUID", amount: 11_000 },
       { bucket: "SPLURGE", amount: 5_000 },
     ]);
-    expect(balances([r.tx])).toMatchObject({ SURVIVAL: 40_000, C1_LIQUID: 55_000, SPLURGE: 5_000 });
+    expect(balances([r.tx])).toMatchObject({
+      SURVIVAL: 40_000,
+      C1_LIQUID: 44_000,
+      C2B_ILLIQUID: 11_000,
+    });
     expect(txTotal(r.tx)).toBe(100_000);
   });
 
@@ -263,8 +268,26 @@ describe("adjust", () => {
 describe("holdings and the ledger", () => {
   const h = holding("C1_LIQUID", 100_000, { name: "Index fund" });
 
-  it("adding a holding funded from the bucket changes nothing; a new asset adds its value", () => {
+  it("adding a holding funded from the bucket posts only its gain; a new asset adds its value", () => {
     expect(holdingAddEffects(h, "FUNDED", TODAY, ids())).toEqual([]);
+    const bought = { ...h, investedAmount: 80_000 };
+    expect(holdingAddEffects(bought, "FUNDED", TODAY, ids())).toEqual([
+      {
+        kind: "ADJUST",
+        id: "x1",
+        date: TODAY,
+        holdingId: h.id,
+        postings: [{ bucket: "C1_LIQUID", amount: 20_000 }],
+        notes: "Value gain: Index fund",
+      },
+    ]);
+    const down = holdingAddEffects({ ...h, investedAmount: 120_000 }, "FUNDED", TODAY, ids());
+    expect(down[0]).toMatchObject({
+      notes: "Value loss: Index fund",
+      postings: [{ amount: -20_000 }],
+    });
+    const cash = { ...h, kind: "CASH" as const, investedAmount: 0 };
+    expect(holdingAddEffects(cash, "FUNDED", TODAY, ids())).toEqual([]);
     expect(holdingAddEffects({ ...h, currentValue: 0 }, "ADD_VALUE", TODAY, ids())).toEqual([]);
     expect(holdingAddEffects(h, "ADD_VALUE", TODAY, ids())).toEqual([
       {
@@ -332,15 +355,31 @@ describe("funded holdings cannot exceed the ledger", () => {
   const b = bal(["EMERGENCY", 300_000]);
   const existing = holding("EMERGENCY", 250_000);
 
-  it("allows up to the unrecorded amount", () => {
+  it("caps the invested amount, not the current value", () => {
     expect(fundedHoldingError(holding("EMERGENCY", 50_000), b, [existing], labels)).toBeNull();
+    // Bought for 50 K, now worth 70 K: allowed, the 20 K is a gain.
+    expect(
+      fundedHoldingError(
+        holding("EMERGENCY", 70_000, { investedAmount: 50_000 }),
+        b,
+        [existing],
+        labels,
+      ),
+    ).toBeNull();
   });
 
-  it("rejects more, and explains the way out", () => {
+  it("rejects a cost above the unrecorded money, and explains the way out", () => {
     const err = fundedHoldingError(holding("EMERGENCY", 60_000), b, [existing], labels);
     expect(err).toBe(
-      'Only ₹50,000 of Emergency is not yet recorded in holdings. Choose "Owned before I started" to add the extra ₹10,000 as new money, or record the income first.',
+      'Only ₹50,000 of Emergency is not yet recorded in holdings, so the invested amount can be at most that. Choose "Owned before I started" to add the extra ₹10,000 as new money, or record the income first.',
     );
+    const cash = fundedHoldingError(
+      holding("EMERGENCY", 60_000, { kind: "CASH", investedAmount: 0 }),
+      b,
+      [existing],
+      labels,
+    );
+    expect(cash).toMatch(/so the balance can be at most that/);
   });
 
   it("ignores the holding being edited", () => {

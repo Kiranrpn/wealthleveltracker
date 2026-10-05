@@ -16,7 +16,7 @@ function goalText(settings: Settings, bucket: Bucket): string {
   const t = settings.targets[bucket];
   switch (t.mode) {
     case "MONTHS_OF_B":
-      return `${t.months} month${t.months === 1 ? "" : "s"} of B`;
+      return `${t.months} month${t.months === 1 ? "" : "s"} of survival budget`;
     case "NEXT_LEVEL":
       return "to reach your next level";
     case "FIXED":
