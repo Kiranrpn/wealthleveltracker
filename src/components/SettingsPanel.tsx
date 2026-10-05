@@ -4,7 +4,17 @@ import { defaultSettings } from "../lib/defaults";
 import { formatPct, parseAmount } from "../lib/format";
 import { fieldErrors, settingsSchema } from "../lib/schema";
 import { exportJSON, holdingsToCSV, importJSON, transactionsToCSV } from "../lib/storage";
-import { BUCKETS, LEVELS, type AppData, type Level, type Settings, type Split } from "../lib/types";
+import {
+  BUCKETS,
+  LEVELS,
+  type AppData,
+  type Bucket,
+  type BucketTarget,
+  type Level,
+  type Settings,
+  type Split,
+  type TargetMode,
+} from "../lib/types";
 import { downloadText } from "./download";
 import { Alert, Card, ConfirmDialog, Field } from "./ui";
 
@@ -13,6 +23,7 @@ export type Theme = "dark" | "light";
 const SECTIONS = [
   { id: "budget", label: "Budget & levels" },
   { id: "split", label: "Income split" },
+  { id: "goals", label: "Bucket goals" },
   { id: "tax", label: "Tax" },
   { id: "appearance", label: "Appearance" },
   { id: "labels", label: "Names & labels" },
@@ -303,6 +314,119 @@ function SplitSection({ settings, onSave }: { settings: Settings; onSave: (s: Se
             </button>
           }
         />
+      </Card>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Bucket goals                                                         */
+/* ------------------------------------------------------------------ */
+
+const MODE_LABEL: Record<TargetMode, string> = {
+  NONE: "No goal",
+  MONTHS_OF_B: "Months of B",
+  FIXED: "Fixed amount",
+  NEXT_LEVEL: "Enough for next level",
+};
+
+type GoalDraft = { mode: TargetMode; value: string };
+
+function GoalsSection({ settings, onSave }: { settings: Settings; onSave: (s: Settings) => void }) {
+  const s = useSectionSave(onSave);
+  const [d, setD] = useState<Record<Bucket, GoalDraft>>(
+    () =>
+      Object.fromEntries(
+        BUCKETS.map((b) => {
+          const t = settings.targets[b];
+          const value =
+            t.mode === "FIXED"
+              ? String(t.amount)
+              : t.mode === "MONTHS_OF_B"
+                ? String(t.months)
+                : "";
+          return [b, { mode: t.mode, value }];
+        }),
+      ) as Record<Bucket, GoalDraft>,
+  );
+  const set = (b: Bucket, patch: Partial<GoalDraft>) => {
+    s.touch();
+    setD((x) => ({ ...x, [b]: { ...x[b], ...patch } }));
+  };
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const targets = Object.fromEntries(
+      BUCKETS.map((b): [Bucket, BucketTarget] => {
+        const g = d[b];
+        if (g.mode === "FIXED") return [b, { mode: "FIXED", amount: parseAmount(g.value) }];
+        if (g.mode === "MONTHS_OF_B")
+          return [b, { mode: "MONTHS_OF_B", months: parseAmount(g.value) }];
+        return [b, { mode: g.mode } as BucketTarget];
+      }),
+    );
+    s.save({ ...settings, targets });
+  }
+  return (
+    <form onSubmit={submit} noValidate>
+      <Card title="Bucket goals">
+        <p className="mb-3 text-sm text-muted">
+          What each bucket should hold. Balances show how far short you are, or the surplus you can
+          move elsewhere. Months of B follow your survival budget automatically.
+        </p>
+        <div className="space-y-3">
+          {BUCKETS.map((b) => {
+            const g = d[b];
+            const modes: TargetMode[] =
+              b === "C1_LIQUID"
+                ? ["NONE", "MONTHS_OF_B", "FIXED", "NEXT_LEVEL"]
+                : ["NONE", "MONTHS_OF_B", "FIXED"];
+            const err = s.errors[`targets.${b}.amount`] ?? s.errors[`targets.${b}.months`];
+            return (
+              <div
+                key={b}
+                className="grid items-start gap-2 rounded-lg border border-line p-3 sm:grid-cols-[1fr_1fr_1fr]"
+              >
+                <p className="pt-2 text-sm font-medium">{settings.labels.buckets[b]}</p>
+                <Field label="Goal type">
+                  {(p) => (
+                    <select
+                      {...p}
+                      className="input"
+                      value={g.mode}
+                      onChange={(e) => set(b, { mode: e.target.value as TargetMode, value: "" })}
+                    >
+                      {modes.map((m) => (
+                        <option key={m} value={m}>
+                          {MODE_LABEL[m]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+                {g.mode === "FIXED" || g.mode === "MONTHS_OF_B" ? (
+                  <NumInput
+                    label={g.mode === "FIXED" ? "Amount (₹)" : "Months"}
+                    value={g.value}
+                    onChange={(v) => set(b, { value: v })}
+                    error={err}
+                  />
+                ) : (
+                  <p className="pt-2 text-xs text-muted">
+                    {g.mode === "NEXT_LEVEL"
+                      ? "Together with Emergency, enough to reach your next level."
+                      : "Shows the balance only."}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {s.errors.targets && (
+          <p className="error" role="alert">
+            {s.errors.targets}
+          </p>
+        )}
+        <SaveBar saved={s.saved} hasErrors={Object.keys(s.errors).length > 0} />
       </Card>
     </form>
   );
@@ -626,7 +750,7 @@ function DataSection({
       <ConfirmDialog
         open={pending?.kind === "reset"}
         title="Reset settings to defaults?"
-        message="Your survival budget is kept. Thresholds, income splits, tax and labels go back to defaults. Your ledger and holdings are not touched."
+        message="Your survival budget is kept. Thresholds, income splits, goals, tax and labels go back to defaults. Your ledger and holdings are not touched."
         confirmLabel="Reset"
         onCancel={() => setPending(null)}
         onConfirm={() => {
@@ -717,6 +841,9 @@ export function SettingsPanel(props: Props) {
         )}
         {section === "split" && (
           <SplitSection key={key} settings={settings} onSave={onSaveSettings} />
+        )}
+        {section === "goals" && (
+          <GoalsSection key={key} settings={settings} onSave={onSaveSettings} />
         )}
         {section === "tax" && <TaxSection key={key} settings={settings} onSave={onSaveSettings} />}
         {section === "appearance" && (

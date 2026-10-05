@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dashboard } from "./components/Dashboard";
-import { HoldingsTable } from "./components/HoldingsTable";
+import { HoldingsPage, type HoldingsIntent } from "./components/HoldingsPage";
 import { LedgerPage, type FormState } from "./components/LedgerPage";
+import { MismatchBar } from "./components/MismatchBar";
+import { TransactionsPage } from "./components/TransactionsPage";
 import { SettingsPanel, type Theme } from "./components/SettingsPanel";
 import { Alert } from "./components/ui";
-import { balances, withCurrentSnapshot } from "./lib/calc";
+import { balances, reconcile, withCurrentSnapshot } from "./lib/calc";
 import { emptyAppData } from "./lib/defaults";
 import { todayISO } from "./lib/format";
 import {
@@ -20,6 +22,7 @@ import type { AppData, Holding, Transaction, TxKind } from "./lib/types";
 const PAGES = [
   { id: "dashboard", label: "Dashboard" },
   { id: "ledger", label: "Ledger" },
+  { id: "transactions", label: "Transactions" },
   { id: "holdings", label: "Holdings" },
   { id: "settings", label: "Settings" },
 ] as const;
@@ -68,6 +71,9 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
   const [page, setPage] = useState<PageId>(pageFromHash);
   const [theme, setTheme] = useState<Theme>(readTheme);
   const [ledgerForm, setLedgerForm] = useState<FormState>(null);
+  const [holdingsIntent, setHoldingsIntent] = useState<HoldingsIntent>(null);
+  const clearHoldingsIntent = useCallback(() => setHoldingsIntent(null), []);
+  const bal = useMemo(() => balances(data.transactions), [data.transactions]);
 
   // Persist on every change.
   useEffect(() => {
@@ -198,6 +204,15 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
           </ul>
         </nav>
       </header>
+      <MismatchBar
+        matches={reconcile(bal, data.holdings)}
+        labels={data.settings.labels.buckets}
+        onFix={(m) => {
+          setHoldingsIntent({ bucket: m.bucket, addValue: m.diff > 0 ? m.diff : undefined });
+          go("holdings");
+        }}
+        onReview={() => go("holdings")}
+      />
 
       <main id="main" className="mx-auto max-w-5xl space-y-4 px-4 pt-4">
         {initial.error && <Alert tone="danger">{initial.error}</Alert>}
@@ -220,15 +235,29 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
             setForm={setLedgerForm}
             onUpsert={actions.upsertTx}
             onDelete={actions.deleteTx}
+            onViewAll={() => go("transactions")}
+          />
+        )}
+        {page === "transactions" && (
+          <TransactionsPage
+            transactions={data.transactions}
+            settings={data.settings}
+            today={today}
+            onEdit={(tx) => {
+              setLedgerForm({ kind: tx.kind, editing: tx });
+              go("ledger");
+            }}
+            onDelete={actions.deleteTx}
           />
         )}
         {page === "holdings" && (
-          <HoldingsTable
+          <HoldingsPage
             holdings={data.holdings}
-            bal={balances(data.transactions)}
-            labels={data.settings.labels}
-            staleDays={data.settings.staleDays}
+            bal={bal}
+            settings={data.settings}
             today={today}
+            intent={holdingsIntent}
+            clearIntent={clearHoldingsIntent}
             onAdd={actions.addHolding}
             onUpdate={actions.updateHolding}
             onRemove={actions.removeHolding}

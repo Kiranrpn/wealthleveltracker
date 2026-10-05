@@ -7,6 +7,7 @@ import {
   buildIncome,
   buildSpend,
   buildTransfer,
+  fundedHoldingError,
   holdingAddEffects,
   holdingRemoveEffects,
   holdingUpdateEffects,
@@ -324,5 +325,36 @@ describe("holdings and the ledger", () => {
       notes: "Removed holding: Index fund",
       postings: [{ bucket: "C1_LIQUID", amount: -100_000 }],
     });
+  });
+});
+
+describe("funded holdings cannot exceed the ledger", () => {
+  const b = bal(["EMERGENCY", 300_000]);
+  const existing = holding("EMERGENCY", 250_000);
+
+  it("allows up to the unrecorded amount", () => {
+    expect(fundedHoldingError(holding("EMERGENCY", 50_000), b, [existing], labels)).toBeNull();
+  });
+
+  it("rejects more, and explains the way out", () => {
+    const err = fundedHoldingError(holding("EMERGENCY", 60_000), b, [existing], labels);
+    expect(err).toBe(
+      'Only ₹50,000 of Emergency is not yet recorded in holdings. Choose "Owned before I started" to add the extra ₹10,000 as new money, or record the income first.',
+    );
+  });
+
+  it("ignores the holding being edited", () => {
+    expect(
+      fundedHoldingError(
+        { ...existing, currentValue: 300_000 },
+        b,
+        [existing],
+        labels,
+        existing.id,
+      ),
+    ).toBeNull();
+    expect(fundedHoldingError(holding("EMERGENCY", 1), bal(["EMERGENCY", -5]), [], labels)).toMatch(
+      /Only ₹0/,
+    );
   });
 });

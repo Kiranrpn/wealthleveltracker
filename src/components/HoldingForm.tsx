@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
-import { parseAmount } from "../lib/format";
-import type { HoldingAddMode } from "../lib/ledger";
+import { parkedByBucket, roundMoney, type Balances } from "../lib/calc";
+import { formatINR, parseAmount } from "../lib/format";
+import { fundedHoldingError, type HoldingAddMode } from "../lib/ledger";
 import { fieldErrors, holdingSchema } from "../lib/schema";
 import { newId } from "../lib/storage";
 import { BUCKETS, type Bucket, type Holding, type Labels } from "../lib/types";
@@ -17,31 +18,61 @@ interface Draft {
   notes: string;
 }
 
-function toDraft(h: Holding | null, today: string): Draft {
+function toDraft(h: Holding | null, today: string, preset?: Preset): Draft {
+  const value = preset?.value ? String(preset.value) : "";
   return {
     name: h?.name ?? "",
-    bucket: h?.bucket ?? "C1_LIQUID",
+    bucket: h?.bucket ?? preset?.bucket ?? "C1_LIQUID",
     type: h?.type ?? "",
     whereParked: h?.whereParked ?? "",
-    investedAmount: h ? String(h.investedAmount) : "",
-    currentValue: h ? String(h.currentValue) : "",
+    investedAmount: h ? String(h.investedAmount) : value,
+    currentValue: h ? String(h.currentValue) : value,
     lastUpdated: h?.lastUpdated ?? today,
     notes: h?.notes ?? "",
   };
 }
 
+export interface Preset {
+  bucket: Bucket;
+  value?: number;
+}
+
 interface Props {
   initial: Holding | null;
+  preset?: Preset;
   today: string;
   labels: Labels;
+  bal: Balances;
+  holdings: Holding[];
   onSave: (h: Holding, mode: HoldingAddMode) => void;
   onCancel: () => void;
 }
 
-export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props) {
-  const [draft, setDraft] = useState<Draft>(() => toDraft(initial, today));
+export function HoldingForm({
+  initial,
+  preset,
+  today,
+  labels,
+  bal,
+  holdings,
+  onSave,
+  onCancel,
+}: Props) {
+  const [draft, setDraft] = useState<Draft>(() => toDraft(initial, today, preset));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [addMode, setAddMode] = useState<HoldingAddMode>("FUNDED");
+  const free = roundMoney(Math.max(0, bal[draft.bucket] - parkedByBucket(holdings)[draft.bucket]));
+  // Default to "bought with bucket money" only when the bucket has unrecorded money.
+  const [addMode, setAddMode] = useState<HoldingAddMode>(() =>
+    roundMoney(
+      Math.max(
+        0,
+        bal[preset?.bucket ?? "C1_LIQUID"] -
+          parkedByBucket(holdings)[preset?.bucket ?? "C1_LIQUID"],
+      ),
+    ) > 0
+      ? "FUNDED"
+      : "ADD_VALUE",
+  );
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   function submit(e: FormEvent) {
@@ -61,6 +92,13 @@ export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props)
     if (!parsed.success) {
       setErrors(fieldErrors(parsed.error));
       return;
+    }
+    if (initial === null && addMode === "FUNDED") {
+      const err = fundedHoldingError(parsed.data, bal, holdings, labels.buckets);
+      if (err) {
+        setErrors({ currentValue: err });
+        return;
+      }
     }
     setErrors({});
     onSave(parsed.data, addMode);
@@ -170,7 +208,7 @@ export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props)
                 />
                 <span>
                   Bought with money already in {labels.buckets[draft.bucket]}. The balance stays the
-                  same.
+                  same. {formatINR(free)} of it is not yet recorded in holdings.
                 </span>
               </label>
               <label className="flex items-start gap-2">

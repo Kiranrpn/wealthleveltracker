@@ -25,6 +25,15 @@ export const DEFAULT_SETTINGS: Settings = {
     L2: split({ SURVIVAL: 0.35, C1_LIQUID: 0.6, SPLURGE: 0.05 }),
     L3: split({ SURVIVAL: 0.35, C1_LIQUID: 0.55, SPLURGE: 0.1 }),
   },
+  targets: {
+    SURVIVAL: { mode: "MONTHS_OF_B", months: 1 },
+    // 15 months = 1.25 years of B, the same line that marks L1.
+    EMERGENCY: { mode: "MONTHS_OF_B", months: 15 },
+    C1_LIQUID: { mode: "NEXT_LEVEL" },
+    C2A_BUSINESS: { mode: "NONE" },
+    C2B_ILLIQUID: { mode: "NONE" },
+    SPLURGE: { mode: "NONE" },
+  },
   staleDays: 90,
   tax: { enabled: false, rate: 0.3 },
   labels: {

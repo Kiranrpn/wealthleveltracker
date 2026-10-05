@@ -23,10 +23,11 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
+/** The balance shown in a bucket's card on the Ledger tab. */
 function balanceOf(label: string): string {
-  const card = screen.getByRole("region", { name: "Balances" });
+  const card = screen.getByRole("region", { name: "Balances and goals" });
   const item = within(card).getByText(label).closest("li") as HTMLElement;
-  return item.textContent?.replace(label, "") ?? "";
+  return item.querySelector("p")?.textContent ?? "";
 }
 
 describe("App", () => {
@@ -89,11 +90,38 @@ describe("App", () => {
     expect(balanceOf("Survival")).toBe("₹30,000");
     expect(balanceOf("Emergency")).toBe("₹65,000");
 
+    // Goals: Survival needs 1 month of B (50,000) -> 20,000 short; Emergency 15 months (7.5 L).
+    const card = screen.getByRole("region", { name: "Balances and goals" });
+    const survival = within(card).getByText("Survival").closest("li") as HTMLElement;
+    expect(within(survival).getByText("₹20,000 short")).toBeInTheDocument();
+
     // Opening balance pushes liquid to 7,50,000 -> L1.
     await user.click(screen.getByRole("button", { name: "Adjust balance" }));
     await user.selectOptions(screen.getByLabelText("Bucket"), "C1_LIQUID");
     await user.type(screen.getByLabelText("Amount (₹)"), "685000");
     await user.click(screen.getByRole("button", { name: "Save adjustment" }));
+
+    // Undo the adjustment, then redo it.
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(balanceOf("C1 Liquid")).toBe("₹0");
+    await user.click(screen.getByRole("button", { name: "Adjust balance" }));
+    await user.selectOptions(screen.getByLabelText("Bucket"), "C1_LIQUID");
+    await user.type(screen.getByLabelText("Amount (₹)"), "685000");
+    await user.click(screen.getByRole("button", { name: "Save adjustment" }));
+
+    // Every entry lives in the Transactions tab, expandable and filterable.
+    await user.click(screen.getByRole("link", { name: "Transactions" }));
+    expect(screen.getByText("4 entries")).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Type"), "SPEND");
+    expect(screen.getByText("1 of 4")).toBeInTheDocument();
+    const row = screen.getByRole("button", { name: /Spend from Splurge/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    await user.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("-₹2,000", { selector: "td" })).toBeInTheDocument();
+
+    // Ledger money not yet recorded as holdings shows in the top bar.
+    expect(screen.getByRole("status")).toHaveTextContent("Survival: ₹30,000 not in holdings");
 
     await user.click(screen.getByRole("link", { name: "Dashboard" }));
     expect(screen.getByLabelText("Level L1")).toBeInTheDocument();
@@ -118,7 +146,7 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App store={memory()} />);
 
-    await user.click(screen.getByRole("button", { name: "+ Add holding" }));
+    await user.click(screen.getByRole("button", { name: "Add holding to C1 Liquid" }));
     await user.type(screen.getByLabelText("Name"), "Index fund");
     await user.type(screen.getByLabelText("Invested amount (₹)"), "100000");
     await user.type(screen.getByLabelText("Current value (₹)"), "100000");
@@ -133,8 +161,10 @@ describe("App", () => {
 
     await user.click(screen.getByRole("link", { name: "Ledger" }));
     expect(balanceOf("C1 Liquid")).toBe("₹1.1 L");
+    await user.click(screen.getByRole("link", { name: "Transactions" }));
     expect(screen.getByText("Value gain: Index fund")).toBeInTheDocument();
     expect(screen.getByText("Added holding: Index fund")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });
 
@@ -158,5 +188,36 @@ describe("theme", () => {
     await user.click(screen.getByRole("button", { name: "Appearance" }));
     await user.click(screen.getByLabelText("Dark"));
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("holdings reconciliation", () => {
+  it("offers to record unrecorded money and caps funded holdings at it", async () => {
+    window.location.hash = "#/ledger";
+    const user = userEvent.setup();
+    render(<App store={memory()} />);
+    await user.click(screen.getByRole("button", { name: "Adjust balance" }));
+    await user.selectOptions(screen.getByLabelText("Bucket"), "EMERGENCY");
+    await user.type(screen.getByLabelText("Amount (₹)"), "300000");
+    await user.click(screen.getByRole("button", { name: "Save adjustment" }));
+
+    await user.click(screen.getByRole("button", { name: "Emergency: ₹3 L not in holdings" }));
+    expect(screen.getByLabelText("Current value (₹)")).toHaveValue("300000");
+    const value = screen.getByLabelText("Current value (₹)");
+    await user.clear(value);
+    await user.type(value, "350000");
+    await user.type(screen.getByLabelText("Name"), "FD");
+    await user.click(screen.getByRole("button", { name: "Add holding" }));
+    expect(screen.getByText(/Only ₹3,00,000 of Emergency is not yet recorded/)).toBeInTheDocument();
+
+    await user.clear(value);
+    await user.type(value, "250000");
+    await user.click(screen.getByRole("button", { name: "Add holding" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Emergency: ₹50,000 not in holdings");
+
+    await user.click(screen.getByRole("button", { name: "Add holding to Emergency" }));
+    await user.type(screen.getByLabelText("Name"), "Savings account");
+    await user.click(screen.getByRole("button", { name: "Add holding" }));
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 });

@@ -43,6 +43,23 @@ Default income splits (edit them in Settings > Income split):
 
 The savings shares (45 / 55 / 60%) come from the original spec. At L0 savings build the emergency fund; from L1 they grow the corpus.
 
+### Bucket goals
+
+Each bucket can have a goal: none, a fixed amount, a number of months of B, or (C1 Liquid only) "enough for the next level". Balances then show either a yellow box with how much is short, or a green "Goal achieved" box with the surplus and a **Move surplus** button that opens a pre-filled move.
+
+| Bucket            | Default goal                                                           |
+| ----------------- | ---------------------------------------------------------------------- |
+| Survival          | 1 month of B                                                           |
+| Emergency         | 15 months of B (1.25 years, the line that marks L1)                    |
+| C1 Liquid         | Enough, with Emergency, to reach the next level (at L3: to stay there) |
+| C2a, C2b, Splurge | No goal                                                                |
+
+Change them in Settings > Bucket goals.
+
+### Transactions
+
+Every entry lives in the **Transactions** tab: grouped by month with income and spending totals, each row expandable to show its bucket breakdown, notes, and Edit / Delete. Filter by text, type, bucket and month. The Ledger tab only holds balances, goals and the forms; after saving there is an Undo.
+
 ### Holdings
 
 Holdings show where a bucket's money is parked (which fund, which bank). The ledger stays the single source of truth, so nothing is counted twice:
@@ -51,8 +68,9 @@ Holdings show where a bucket's money is parked (which fund, which bank). The led
 - Updating a holding's value posts the gain or loss to its bucket automatically.
 - Moving a holding to another bucket moves its value.
 - Removing a holding: "sold, keep the cash" (balance unchanged) or "remove its value".
+- A holding "bought with bucket money" cannot be worth more than the part of the bucket not yet recorded in holdings. Anything above that must be added as new money, so holdings never silently exceed the ledger.
 
-The Holdings page shows, per bucket, how much is in holdings and how much is still cash.
+The Holdings page is grouped by bucket: ledger balance, value in holdings, gain or loss per holding, stale warnings, and a status per bucket (Matched, not in holdings, or over ledger). Whenever a bucket's ledger and holdings differ, a bar at the top of every page says so until they match; tapping a bucket opens a pre-filled "Add holding".
 
 ### The level formula
 
@@ -112,7 +130,7 @@ npm run format
 
 ## Tests
 
-`tests/calc.test.ts` (levels, balances, splits, what-if, snapshots, warnings), `tests/ledger.test.ts` (income, spend, move, adjust, holding effects) and `tests/storage.test.ts` (validation, export/import round trip, v1 migration, CSV). `tests/app.test.tsx` drives the real UI: add income with a split, overspend blocked, move money, opening balance, level change, holding revaluation, theme. Coverage of `src/lib/calc.ts` and `src/lib/ledger.ts` is enforced at 100%.
+`tests/calc.test.ts` (levels, balances, splits, what-if, snapshots, warnings), `tests/ledger.test.ts` (income, spend, move, adjust, holding effects) and `tests/storage.test.ts` (validation, export/import round trip, v1 migration, CSV). `tests/app.test.tsx` drives the real UI: add income with a split, overspend blocked, move money, goals, undo, the Transactions tab filters and expandable rows, the ledger/holdings mismatch bar and holding cap, holding revaluation, theme. Coverage of `src/lib/calc.ts` and `src/lib/ledger.ts` is enforced at 100%.
 
 ## Try it in your browser
 

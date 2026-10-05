@@ -396,13 +396,19 @@ export function TransferForm({
   today,
   onSave,
   onCancel,
-}: FormProps<TransferTx>) {
+  prefill,
+}: FormProps<TransferTx> & { prefill?: { from?: Bucket; amount?: number } }) {
   const available = useAvailable(transactions, initial?.id);
   const labels = settings.labels.buckets;
   const [date, setDate] = useState(initial?.date ?? today);
-  const [from, setFrom] = useState<Bucket>(initial?.postings[0].bucket ?? "SURVIVAL");
-  const [to, setTo] = useState<Bucket>(initial?.postings[1].bucket ?? "C1_LIQUID");
-  const [amount, setAmount] = useState(initial ? String(initial.postings[1].amount) : "");
+  const startFrom = initial?.postings[0].bucket ?? prefill?.from ?? "SURVIVAL";
+  const [from, setFrom] = useState<Bucket>(startFrom);
+  const [to, setTo] = useState<Bucket>(
+    initial?.postings[1].bucket ?? (startFrom === "C1_LIQUID" ? "EMERGENCY" : "C1_LIQUID"),
+  );
+  const [amount, setAmount] = useState(
+    initial ? String(initial.postings[1].amount) : prefill?.amount ? String(prefill.amount) : "",
+  );
   const [notes, setNotes] = useState(initial?.notes ?? "");
   const [errors, setErrors] = useState<Record<string, string>>({});
 

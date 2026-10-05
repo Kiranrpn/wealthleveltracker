@@ -134,6 +134,20 @@ const splitSchema = z
     message: "Shares must add up to 100%",
   });
 
+const targetSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("NONE") }),
+  z.object({ mode: z.literal("FIXED"), amount: money("Goal amount") }),
+  z.object({
+    mode: z.literal("MONTHS_OF_B"),
+    months: z
+      .number({ invalid_type_error: "Months must be a number" })
+      .finite("Months must be a finite number")
+      .positive("Months must be greater than 0")
+      .max(1200, "Months cannot exceed 1200"),
+  }),
+  z.object({ mode: z.literal("NEXT_LEVEL") }),
+]);
+
 export const settingsSchema = z.object({
   monthlySurvivalB: money("Monthly survival budget"),
   thresholds: z
@@ -146,6 +160,21 @@ export const settingsSchema = z.object({
       message: "Thresholds must increase: L1 < L2 < L3",
     }),
   splits: z.object({ L0: splitSchema, L1: splitSchema, L2: splitSchema, L3: splitSchema }),
+  targets: z
+    .object({
+      SURVIVAL: targetSchema,
+      EMERGENCY: targetSchema,
+      C1_LIQUID: targetSchema,
+      C2A_BUSINESS: targetSchema,
+      C2B_ILLIQUID: targetSchema,
+      SPLURGE: targetSchema,
+    })
+    .refine(
+      (t) => Object.entries(t).every(([b, v]) => v.mode !== "NEXT_LEVEL" || b === "C1_LIQUID"),
+      {
+        message: "Only C1 Liquid can use the next-level goal",
+      },
+    ),
   staleDays: z
     .number({ invalid_type_error: "Stale days must be a number" })
     .int("Stale days must be a whole number")

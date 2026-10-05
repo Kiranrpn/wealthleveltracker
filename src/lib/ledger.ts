@@ -229,6 +229,27 @@ export type HoldingAddMode = "FUNDED" | "ADD_VALUE";
  */
 export type HoldingRemoveMode = "KEEP_CASH" | "REMOVE_VALUE";
 
+/**
+ * A holding bought with bucket money cannot be worth more than the part of the bucket not yet
+ * recorded in holdings, or the holdings would exceed the ledger. Returns an error message or null.
+ * `excludeId` leaves out the holding being edited.
+ */
+export function fundedHoldingError(
+  h: Holding,
+  bal: Balances,
+  holdings: readonly Holding[],
+  labels: Record<Bucket, string>,
+  excludeId?: string,
+): string | null {
+  const recorded = holdings
+    .filter((x) => x.bucket === h.bucket && x.id !== excludeId)
+    .reduce((s, x) => s + safeAmount(x.currentValue), 0);
+  const free = roundMoney(Math.max(0, bal[h.bucket] - recorded));
+  const value = roundMoney(safeAmount(h.currentValue));
+  if (value <= free + EPS) return null;
+  return `Only ${fmt(free)} of ${labels[h.bucket]} is not yet recorded in holdings. Choose "Owned before I started" to add the extra ${fmt(roundMoney(value - free))} as new money, or record the income first.`;
+}
+
 export function holdingAddEffects(
   h: Holding,
   mode: HoldingAddMode,

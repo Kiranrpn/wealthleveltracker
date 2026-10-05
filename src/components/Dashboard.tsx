@@ -1,4 +1,4 @@
-import { balances, computeStatus, computeWarnings, parkedByBucket } from "../lib/calc";
+import { balances, computeStatus, computeWarnings } from "../lib/calc";
 import { formatINR } from "../lib/format";
 import type { AppData, TxKind } from "../lib/types";
 import { BucketsCard } from "./BucketsCard";
@@ -73,12 +73,7 @@ export function Dashboard({ data, today, onOpenSettings, onQuickAction }: Props)
         )}
       </Card>
 
-      <BucketsCard
-        bal={bal}
-        parked={parkedByBucket(holdings)}
-        settings={settings}
-        className="sm:col-span-2"
-      />
+      <BucketsCard bal={bal} settings={settings} className="sm:col-span-2" />
       <WhatIfCard settings={settings} bal={bal} className="sm:col-span-2" />
       <HistoryChart snapshots={data.snapshots} settings={settings} />
     </div>

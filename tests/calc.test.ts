@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   annualB,
   balances,
+  bucketGoals,
+  bucketTarget,
+  goalStatus,
+  reconcile,
   BUDGET_PROMPT,
   clamp,
   computeStatus,
@@ -405,5 +409,69 @@ describe("snapshots", () => {
     expect(once).not.toBe(data);
     expect(once.snapshots[0].liquidTotal).toBe(10);
     expect(withCurrentSnapshot(once, TODAY)).toBe(once);
+  });
+});
+
+describe("bucket goals", () => {
+  const settings = settingsWith(B);
+
+  it("defaults: Survival 1 month of B, Emergency 15 months (the L1 line), C1 to the next level", () => {
+    const b = bal(["SURVIVAL", 40_000], ["EMERGENCY", 800_000], ["C1_LIQUID", 1_000_000]);
+    const g = bucketGoals(settings, b);
+    expect(g.SURVIVAL).toEqual({ kind: "SHORT", target: 50_000, shortBy: 10_000 });
+    expect(g.EMERGENCY).toEqual({ kind: "MET", target: 750_000, surplus: 50_000 });
+    // Liquid 18 L -> L1; next level L2 needs 60 L; Emergency covers 8 L, so C1 needs 52 L.
+    expect(g.C1_LIQUID).toEqual({ kind: "SHORT", target: 5_200_000, shortBy: 4_200_000 });
+    expect(g.SPLURGE).toEqual({ kind: "NONE" });
+  });
+
+  it("4 L goal: 3.5 L is 50 K short, 4.5 L is achieved with 50 K surplus", () => {
+    expect(goalStatus(350_000, 400_000)).toEqual({
+      kind: "SHORT",
+      target: 400_000,
+      shortBy: 50_000,
+    });
+    expect(goalStatus(450_000, 400_000)).toEqual({ kind: "MET", target: 400_000, surplus: 50_000 });
+    expect(goalStatus(400_000, 400_000)).toEqual({ kind: "MET", target: 400_000, surplus: 0 });
+    expect(goalStatus(1, null)).toEqual({ kind: "NONE" });
+    expect(goalStatus(1, 0)).toEqual({ kind: "NONE" });
+  });
+
+  it("fixed goals, goals without B, and next-level at L3", () => {
+    const zero = zeroBalances();
+    expect(bucketTarget("SPLURGE", { mode: "FIXED", amount: 400_000 }, settings, zero)).toBe(
+      400_000,
+    );
+    expect(
+      bucketTarget("EMERGENCY", { mode: "MONTHS_OF_B", months: 6 }, settingsWith(0), zero),
+    ).toBeNull();
+    expect(bucketTarget("C1_LIQUID", { mode: "NEXT_LEVEL" }, settingsWith(0), zero)).toBeNull();
+    expect(bucketTarget("SPLURGE", { mode: "NEXT_LEVEL" }, settings, zero)).toBeNull();
+    const rich = bal(["C1_LIQUID", 25_000_000], ["EMERGENCY", 1_000_000]);
+    // At L3 the goal is staying at L3: 35 x 6 L minus Emergency.
+    expect(bucketTarget("C1_LIQUID", { mode: "NEXT_LEVEL" }, settings, rich)).toBe(20_000_000);
+    const big = bal(["EMERGENCY", 9_000_000]);
+    expect(bucketTarget("C1_LIQUID", { mode: "NEXT_LEVEL" }, settings, big)).toBe(12_000_000);
+  });
+});
+
+describe("ledger vs holdings", () => {
+  it("flags unrecorded money and holdings that exceed the ledger", () => {
+    const b = bal(["EMERGENCY", 300_000], ["C1_LIQUID", 100_000], ["SPLURGE", 1000.4]);
+    const r = reconcile(b, [
+      holding("EMERGENCY", 250_000),
+      holding("C1_LIQUID", 120_000),
+      holding("SPLURGE", 1000),
+    ]);
+    const by = Object.fromEntries(r.map((m) => [m.bucket, m]));
+    expect(by.EMERGENCY).toMatchObject({
+      ledger: 300_000,
+      recorded: 250_000,
+      diff: 50_000,
+      state: "UNRECORDED",
+    });
+    expect(by.C1_LIQUID).toMatchObject({ diff: -20_000, state: "EXCESS" });
+    expect(by.SPLURGE.state).toBe("MATCHED");
+    expect(by.SURVIVAL.state).toBe("MATCHED");
   });
 });

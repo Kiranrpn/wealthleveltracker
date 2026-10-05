@@ -4,6 +4,7 @@ import {
   LIQUID_BUCKETS,
   type AppData,
   type Bucket,
+  type BucketTarget,
   type Holding,
   type Level,
   type Settings,
@@ -168,6 +169,62 @@ export function computeStatus(settings: Settings, bal: Balances): Status {
 export function currentLevel(settings: Settings, bal: Balances): Level {
   const s = computeStatus(settings, bal);
   return s.kind === "OK" ? s.level : "L0";
+}
+
+/* ------------------------------------------------------------------ */
+/* Bucket goals                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Goal amount for one bucket, or null when there is no goal (or it depends on B and B is not set).
+ * NEXT_LEVEL: what C1 Liquid needs, together with the current Emergency balance, to reach the
+ * next level (at L3: to stay at L3).
+ */
+export function bucketTarget(
+  bucket: Bucket,
+  target: BucketTarget,
+  settings: Settings,
+  bal: Balances,
+): number | null {
+  switch (target.mode) {
+    case "NONE":
+      return null;
+    case "FIXED":
+      return roundMoney(safeAmount(target.amount));
+    case "MONTHS_OF_B": {
+      const b = safeAmount(settings.monthlySurvivalB);
+      return b > 0 ? roundMoney(b * safeAmount(target.months)) : null;
+    }
+    case "NEXT_LEVEL": {
+      const status = computeStatus(settings, bal);
+      if (status.kind !== "OK" || bucket !== "C1_LIQUID") return null;
+      const levelValue = status.nextThresholdValue ?? settings.thresholds.L3 * status.annualB;
+      return roundMoney(Math.max(0, levelValue - safeAmount(bal.EMERGENCY)));
+    }
+  }
+}
+
+export type GoalStatus =
+  | { kind: "NONE" }
+  | { kind: "SHORT"; target: number; shortBy: number }
+  | { kind: "MET"; target: number; surplus: number };
+
+export function goalStatus(balance: number, target: number | null): GoalStatus {
+  if (target === null || target <= 0) return { kind: "NONE" };
+  const diff = roundMoney(finite(balance) - target);
+  return diff < 0
+    ? { kind: "SHORT", target, shortBy: -diff }
+    : { kind: "MET", target, surplus: diff };
+}
+
+/** Goal status of every bucket. */
+export function bucketGoals(settings: Settings, bal: Balances): Record<Bucket, GoalStatus> {
+  return Object.fromEntries(
+    BUCKETS.map((b) => [
+      b,
+      goalStatus(bal[b], bucketTarget(b, settings.targets[b], settings, bal)),
+    ]),
+  ) as Record<Bucket, GoalStatus>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -341,6 +398,31 @@ export function parkedByBucket(holdings: readonly Holding[]): Balances {
   const out = zeroBalances();
   for (const h of holdings) out[h.bucket] = roundMoney(out[h.bucket] + safeAmount(h.currentValue));
   return out;
+}
+
+export type MatchState = "MATCHED" | "UNRECORDED" | "EXCESS";
+
+export interface BucketMatch {
+  bucket: Bucket;
+  ledger: number;
+  recorded: number;
+  /** ledger minus recorded. Positive: money not yet recorded as a holding. Negative: holdings exceed the ledger. */
+  diff: number;
+  state: MatchState;
+}
+
+/** Below this difference (in rupees) a bucket counts as matched. */
+export const MATCH_TOLERANCE = 1;
+
+/** Compares each bucket's ledger balance with the value recorded in its holdings. */
+export function reconcile(bal: Balances, holdings: readonly Holding[]): BucketMatch[] {
+  const parked = parkedByBucket(holdings);
+  return BUCKETS.map((b) => {
+    const diff = roundMoney(bal[b] - parked[b]);
+    const state: MatchState =
+      Math.abs(diff) < MATCH_TOLERANCE ? "MATCHED" : diff > 0 ? "UNRECORDED" : "EXCESS";
+    return { bucket: b, ledger: bal[b], recorded: parked[b], diff, state };
+  });
 }
 
 /** Holdings whose lastUpdated is more than `staleDays` days before `todayIso`. */

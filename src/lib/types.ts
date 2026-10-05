@@ -107,11 +107,27 @@ export interface Labels {
   buckets: Record<Bucket, string>;
 }
 
+/**
+ * What a bucket should hold.
+ * - NONE: no goal.
+ * - FIXED: a fixed INR amount.
+ * - MONTHS_OF_B: a number of months of the survival budget B.
+ * - NEXT_LEVEL (C1 Liquid only): enough, together with Emergency, to reach the next level.
+ */
+export type BucketTarget =
+  | { mode: "NONE" }
+  | { mode: "FIXED"; amount: number }
+  | { mode: "MONTHS_OF_B"; months: number }
+  | { mode: "NEXT_LEVEL" };
+export type TargetMode = BucketTarget["mode"];
+
 export interface Settings {
   monthlySurvivalB: number;
   thresholds: { L1: number; L2: number; L3: number }; // defaults 1.25, 10, 35
   /** Income split for each level. The split for your current level is used by default. */
   splits: Record<Level, Split>;
+  /** Goal for each bucket, used to show what is short or surplus. */
+  targets: Record<Bucket, BucketTarget>;
   staleDays: number; // default 90
   tax: TaxSettings;
   labels: Labels;
