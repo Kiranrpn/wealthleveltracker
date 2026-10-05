@@ -92,6 +92,28 @@ npm run format
 
 `tests/calc.test.ts`, `tests/eta.test.ts` and `tests/storage.test.ts` cover every case in the spec (numbered 1 to 14 in the test names), plus edge cases. `tests/app.test.tsx` drives the UI end to end in jsdom. Coverage of `src/lib/calc.ts` and `src/lib/eta.ts` is enforced at 100%.
 
+## Light and dark mode
+
+Dark by default. The **Light / Dark** button in the header switches theme; the choice is remembered on that device and applied before the page paints, so there is no flash.
+
+## Try it in your browser
+
+- **Locally:** `npm install && npm run dev`, then open http://localhost:5173.
+- **On the web (any device):** one-time setup in GitHub: **Settings > Pages > Build and deployment > Source: GitHub Actions**. After that, every push runs `.github/workflows/deploy-pages.yml` and the app is live at `https://<your-username>.github.io/wealthleveltracker/`. Re-run the workflow from the **Actions** tab after enabling Pages the first time.
+
+## Android APK
+
+`.github/workflows/build-apk.yml` wraps the web app with Capacitor and builds an installable APK.
+
+1. GitHub > **Actions** > **Build Android APK** > **Run workflow**.
+2. When it finishes (about 5 to 8 minutes) the APK is attached to a new **Release** (`apk-1.0.<run number>`) on the repo's Releases page, and also to the workflow run as an artifact.
+3. On your phone, open the Release, download the `.apk`, and allow installs from that app when Android asks.
+
+Notes:
+- Builds are signed with the fixed debug key in `android-signing/` and get a rising version number, so a new APK installs as an update and keeps your data. See `android-signing/README.md` for why this key is committed.
+- In the app, **Export** opens the Android share sheet (save to Files, Drive, email). **Import** opens the file picker.
+- App data lives inside the app on that phone. It is separate from any browser copy, and uninstalling the app deletes it. Export a backup first.
+
 ## Deploy
 
 It is a static site. Build with `npm run build` and host the `dist/` folder anywhere:

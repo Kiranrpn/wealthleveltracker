@@ -8,7 +8,16 @@
       content="Wealthy? tracks your wealth level and the gap to the next one."
     />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="theme-color" content="#0b0f19" />
     <title>Wealthy?</title>
+    <script>
+      // Apply the saved theme before first paint so light mode does not flash dark.
+      try {
+        if (localStorage.getItem("wealthy-theme") === "light") {
+          document.documentElement.dataset.theme = "light";
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

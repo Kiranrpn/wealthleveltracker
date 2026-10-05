@@ -17,12 +17,18 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "@capacitor/core": "^7.6.9",
+    "@capacitor/filesystem": "^7.1.9",
+    "@capacitor/share": "^7.0.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "recharts": "^2.13.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^7.6.9",
     "@eslint/js": "^9.15.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",

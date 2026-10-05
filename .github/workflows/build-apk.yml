@@ -1,0 +1,94 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to publish the APK as a GitHub Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "21"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Create Android project
+        # Capacitor packages and capacitor.config.ts are already in the repo, so no `cap init`.
+        run: npx cap add android
+
+      - name: Generate app icons and splash
+        run: |
+          cp assets/logo.png assets/icon-only.png
+          cp assets/logo.png assets/icon-foreground.png
+          cp assets/logo.png assets/icon-background.png
+          cp assets/logo.png assets/splash.png
+          cp assets/logo.png assets/splash-dark.png
+          npx @capacitor/assets generate --android \
+            --iconBackgroundColor '#0b0f19' --iconBackgroundColorDark '#0b0f19' \
+            --splashBackgroundColor '#0b0f19' --splashBackgroundColorDark '#0b0f19'
+
+      - name: Sync web build into Android
+        run: npx cap sync android
+
+      - name: Set version from run number
+        # A higher versionCode each run so Android always treats a new APK as an update.
+        run: |
+          sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i -E "s/versionName \"[^\"]+\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -E "versionCode|versionName" android/app/build.gradle
+
+      - name: Use the fixed debug signing key
+        # Same key every build, so new APKs install over old ones without wiping data.
+        run: |
+          mkdir -p ~/.android
+          cp android-signing/debug.keystore ~/.android/debug.keystore
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/wealthy-1.0.${{ github.run_number }}.apk"
+
+      - name: Upload APK to the workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: wealthy-apk
+          path: wealthy-1.0.${{ github.run_number }}.apk
+
+      - name: Publish APK as a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-1.0.${{ github.run_number }}
+          name: Wealthy? 1.0.${{ github.run_number }} (Android)
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          files: wealthy-1.0.${{ github.run_number }}.apk
+          body: |
+            Debug build of Wealthy? for Android, from commit ${{ github.sha }}.
+
+            Install: download the .apk on your phone, open it, and allow installs from your
+            browser or Files app when asked. New builds install over old ones and keep your data.
+            Export a backup from Settings before updating, just in case.

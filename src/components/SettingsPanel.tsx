@@ -74,6 +74,7 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
   const [saved, setSaved] = useState(false);
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [pending, setPending] = useState<Pending>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
@@ -97,6 +98,15 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
     onSaveSettings(parsed.data);
     setDraft(toDraft(parsed.data));
     setSaved(true);
+  }
+
+  function save(filename: string, content: string, mime: string) {
+    setExportError(null);
+    downloadText(filename, content, mime).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Closing the Android share sheet is not an error.
+      if (!/cancel/i.test(msg)) setExportError(`Export failed: ${msg}`);
+    });
   }
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
@@ -299,14 +309,14 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
 
       <Card title="Data and backup">
         <p className="mb-3 text-sm text-muted">
-          Everything is stored only in this browser. Export a backup regularly.
+          Everything is stored only on this device. Export a backup regularly.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
             className="btn"
             onClick={() =>
-              downloadText(`wealthy-backup-${today}.json`, exportJSON(data), "application/json")
+              save(`wealthy-backup-${today}.json`, exportJSON(data), "application/json")
             }
           >
             Export data (JSON)
@@ -317,7 +327,7 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
           <input
             ref={fileRef}
             type="file"
-            accept="application/json,.json"
+            accept=".json,application/json,text/plain,application/octet-stream"
             className="sr-only"
             aria-label="Choose a JSON backup file to import"
             tabIndex={-1}
@@ -327,11 +337,7 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
             type="button"
             className="btn"
             onClick={() =>
-              downloadText(
-                `wealthy-holdings-${today}.csv`,
-                holdingsToCSV(data.holdings),
-                "text/csv",
-              )
+              save(`wealthy-holdings-${today}.csv`, holdingsToCSV(data.holdings), "text/csv")
             }
           >
             Export holdings (CSV)
@@ -340,7 +346,7 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
             type="button"
             className="btn"
             onClick={() =>
-              downloadText(`wealthy-income-${today}.csv`, incomeToCSV(data.income), "text/csv")
+              save(`wealthy-income-${today}.csv`, incomeToCSV(data.income), "text/csv")
             }
           >
             Export income (CSV)
@@ -353,6 +359,11 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
             Delete all data
           </button>
         </div>
+        {exportError && (
+          <div className="mt-3" role="alert">
+            <Alert tone="danger">{exportError}</Alert>
+          </div>
+        )}
         {importErrors.length > 0 && (
           <div className="mt-3" role="alert">
             <Alert tone="danger">

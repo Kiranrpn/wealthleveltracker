@@ -75,6 +75,9 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute("content", theme === "dark" ? "#0b0f19" : "#f5f7fb");
     try {
       window.localStorage.setItem(THEME_KEY, theme);
     } catch {
@@ -146,9 +149,11 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
             type="button"
             className="btn btn-sm"
             onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
           >
-            {theme === "dark" ? "Light mode" : "Dark mode"}
+            <span aria-hidden="true">{theme === "dark" ? "\u2600" : "\u263E"}</span>
+            {theme === "dark" ? "Light" : "Dark"}
           </button>
         </div>
         <nav aria-label="Main" className="mx-auto max-w-5xl overflow-x-auto px-4">

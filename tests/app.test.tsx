@@ -68,3 +68,22 @@ describe("App", () => {
     expect(saved.snapshots).toHaveLength(1);
   });
 });
+
+describe("theme switcher", () => {
+  it("defaults to dark, toggles to light and back, and remembers the choice", async () => {
+    window.localStorage.removeItem("wealthy-theme");
+    const user = userEvent.setup();
+    const { unmount } = render(<App store={memory()} />);
+    expect(document.documentElement.dataset.theme).toBe("dark");
+
+    await user.click(screen.getByRole("button", { name: "Switch to light mode" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(window.localStorage.getItem("wealthy-theme")).toBe("light");
+    unmount();
+
+    render(<App store={memory()} />);
+    expect(document.documentElement.dataset.theme).toBe("light");
+    await user.click(screen.getByRole("button", { name: "Switch to dark mode" }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
