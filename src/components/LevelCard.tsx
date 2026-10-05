@@ -45,14 +45,8 @@ export function LevelCard({ status, labels, onOpenSettings }: Props) {
           )}
           <p className="text-lg font-semibold">{meta.meaning}</p>
           <p className="mt-1 text-sm text-muted">
-            {status.coveredByIncome ? (
-              <>Reliable C2 income covers your full survival budget. Effective annual B is ₹0.</>
-            ) : (
-              <>
-                <span className="text-2xl font-bold text-fg">{formatRatio(status.ratio)}</span> of
-                annual survival
-              </>
-            )}
+            <span className="text-2xl font-bold text-fg">{formatRatio(status.ratio)}</span> of
+            annual survival
           </p>
         </div>
       </div>

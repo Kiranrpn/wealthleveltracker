@@ -76,6 +76,8 @@ export function ConfirmDialog({
   danger = false,
   onConfirm,
   onCancel,
+  altLabel,
+  onAlt,
 }: {
   open: boolean;
   title: string;
@@ -84,6 +86,9 @@ export function ConfirmDialog({
   danger?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Optional second action shown between Cancel and Confirm. */
+  altLabel?: string;
+  onAlt?: () => void;
 }) {
   const titleId = useId();
   const descId = useId();
@@ -137,10 +142,15 @@ export function ConfirmDialog({
         <div id={descId} className="mt-2 text-sm text-muted">
           {message}
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button ref={cancelRef} type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
+          {altLabel && onAlt && (
+            <button type="button" className="btn" onClick={onAlt}>
+              {altLabel}
+            </button>
+          )}
           <button
             ref={confirmRef}
             type="button"

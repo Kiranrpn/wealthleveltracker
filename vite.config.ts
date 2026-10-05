@@ -25,7 +25,7 @@ export default defineConfig({
       include: ["src/lib/**/*.ts"],
       thresholds: {
         "src/lib/calc.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        "src/lib/eta.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/lib/ledger.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },
     },
   },

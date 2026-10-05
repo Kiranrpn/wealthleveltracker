@@ -1,4 +1,3 @@
-import { useState } from "react";
 import {
   CartesianGrid,
   Line,
@@ -10,11 +9,13 @@ import {
   YAxis,
 } from "recharts";
 import { formatMonth, formatRatio } from "../lib/format";
-import type { Settings, Snapshot } from "../lib/types";
+import { LEVELS, type Settings, type Snapshot } from "../lib/types";
 import { Card } from "./ui";
 
-const LOG_FLOOR = 0.1;
-
+/**
+ * Coverage ratio per month. The y-axis stops just above the next threshold you have not
+ * reached yet, so early progress is visible instead of squashed under the 35x line.
+ */
 export function HistoryChart({
   snapshots,
   settings,
@@ -22,59 +23,30 @@ export function HistoryChart({
   snapshots: Snapshot[];
   settings: Settings;
 }) {
-  const [scale, setScale] = useState<"linear" | "log">("log");
   const t = settings.thresholds;
-  const L = settings.labels.levels;
-
-  const points = snapshots.map((s) => ({
-    month: formatMonth(s.date),
-    // Ratio is null when income covers survival; plot it at the L3 line.
-    ratio: s.ratio === null ? t.L3 : s.ratio,
-    covered: s.ratio === null,
-  }));
-  const maxRatio = Math.max(t.L3 * 1.1, ...points.map((p) => p.ratio));
-  const plotted =
-    scale === "log"
-      ? points.map((p) => ({ ...p, plot: Math.max(LOG_FLOOR, p.ratio) }))
-      : points.map((p) => ({ ...p, plot: p.ratio }));
+  const lines = (["L1", "L2", "L3"] as const).map((lv) => ({ lv, y: t[lv] }));
+  const points = snapshots.map((s) => ({ month: formatMonth(s.date), ratio: s.ratio }));
+  const maxRatio = Math.max(0, ...points.map((p) => p.ratio));
+  const ceiling = lines.find((l) => l.y > maxRatio)?.y ?? maxRatio;
+  const yMax = Math.max(ceiling, maxRatio) * 1.15;
 
   return (
-    <Card
-      title="Coverage history"
-      className="sm:col-span-2"
-      action={
-        <div role="group" aria-label="Chart scale" className="flex gap-1">
-          {(["log", "linear"] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              className={`btn btn-sm ${scale === s ? "btn-primary" : ""}`}
-              aria-pressed={scale === s}
-              onClick={() => setScale(s)}
-            >
-              {s === "log" ? "Log" : "Linear"}
-            </button>
-          ))}
-        </div>
-      }
-    >
+    <Card title="Coverage history" className="sm:col-span-2">
       {points.length === 0 ? (
         <p className="text-sm text-muted">
-          History appears here once your survival budget is set. One point is saved per month.
+          History appears once your survival budget is set. One point is saved per month.
         </p>
       ) : (
-        <div className="h-64 w-full" role="img" aria-label="Coverage ratio over time">
+        <div className="h-64 w-full" role="img" aria-label="Coverage ratio by month">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={plotted} margin={{ top: 10, right: 16, bottom: 0, left: -8 }}>
+            <LineChart data={points} margin={{ top: 10, right: 16, bottom: 0, left: -8 }}>
               <CartesianGrid stroke="rgb(var(--c-line))" strokeDasharray="3 3" />
               <XAxis dataKey="month" stroke="rgb(var(--c-muted))" fontSize={12} />
               <YAxis
                 stroke="rgb(var(--c-muted))"
                 fontSize={12}
-                scale={scale}
-                domain={scale === "log" ? [LOG_FLOOR, maxRatio] : [0, maxRatio]}
-                allowDataOverflow
-                tickFormatter={(v: number) => `${v}x`}
+                domain={[0, yMax]}
+                tickFormatter={(v: number) => `${Math.round(v * 10) / 10}x`}
               />
               <Tooltip
                 contentStyle={{
@@ -82,47 +54,27 @@ export function HistoryChart({
                   border: "1px solid rgb(var(--c-line))",
                   borderRadius: 8,
                 }}
-                formatter={(_v, _n, item) => {
-                  const p = item.payload as (typeof plotted)[number];
-                  return [p.covered ? "Income covers survival" : formatRatio(p.ratio), "Coverage"];
-                }}
+                formatter={(v: number) => [formatRatio(v), "Coverage"]}
               />
-              <ReferenceLine
-                y={t.L1}
-                stroke="rgb(var(--c-warn))"
-                strokeDasharray="4 4"
-                label={{
-                  value: `${L.L1.name} ${t.L1}x`,
-                  fill: "rgb(var(--c-muted))",
-                  fontSize: 11,
-                  position: "insideTopLeft",
-                }}
-              />
-              <ReferenceLine
-                y={t.L2}
-                stroke="rgb(var(--c-warn))"
-                strokeDasharray="4 4"
-                label={{
-                  value: `${L.L2.name} ${t.L2}x`,
-                  fill: "rgb(var(--c-muted))",
-                  fontSize: 11,
-                  position: "insideTopLeft",
-                }}
-              />
-              <ReferenceLine
-                y={t.L3}
-                stroke="rgb(var(--c-ok))"
-                strokeDasharray="4 4"
-                label={{
-                  value: `${L.L3.name} ${t.L3}x`,
-                  fill: "rgb(var(--c-muted))",
-                  fontSize: 11,
-                  position: "insideTopLeft",
-                }}
-              />
+              {lines
+                .filter((l) => l.y <= yMax)
+                .map((l) => (
+                  <ReferenceLine
+                    key={l.lv}
+                    y={l.y}
+                    stroke={l.lv === LEVELS[3] ? "rgb(var(--c-ok))" : "rgb(var(--c-warn))"}
+                    strokeDasharray="4 4"
+                    label={{
+                      value: `${settings.labels.levels[l.lv].name} ${l.y}x`,
+                      fill: "rgb(var(--c-muted))",
+                      fontSize: 11,
+                      position: "insideTopLeft",
+                    }}
+                  />
+                ))}
               <Line
                 type="monotone"
-                dataKey="plot"
+                dataKey="ratio"
                 stroke="rgb(var(--c-accent))"
                 strokeWidth={2}
                 dot={{ r: 3 }}

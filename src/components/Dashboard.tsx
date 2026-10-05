@@ -1,8 +1,7 @@
-import { bucketTotals, computeStatus, computeWarnings } from "../lib/calc";
-import { computeEta } from "../lib/eta";
-import { formatINR, formatINRShort } from "../lib/format";
-import { BUCKETS, type AppData } from "../lib/types";
-import { EtaCard } from "./EtaCard";
+import { balances, computeStatus, computeWarnings, parkedByBucket } from "../lib/calc";
+import { formatINR } from "../lib/format";
+import type { AppData, TxKind } from "../lib/types";
+import { BucketsCard } from "./BucketsCard";
 import { GapCard } from "./GapCard";
 import { HistoryChart } from "./HistoryChart";
 import { LevelCard } from "./LevelCard";
@@ -13,14 +12,14 @@ interface Props {
   data: AppData;
   today: string;
   onOpenSettings: () => void;
+  onQuickAction: (kind: TxKind) => void;
 }
 
-export function Dashboard({ data, today, onOpenSettings }: Props) {
-  const { settings, holdings, income } = data;
-  const status = computeStatus(settings, holdings);
-  const eta = computeEta(settings, holdings, income, today);
-  const warnings = computeWarnings(settings, holdings, today);
-  const totals = bucketTotals(holdings);
+export function Dashboard({ data, today, onOpenSettings, onQuickAction }: Props) {
+  const { settings, holdings } = data;
+  const bal = balances(data.transactions);
+  const status = computeStatus(settings, bal);
+  const warnings = computeWarnings(settings, bal, holdings, today);
   const labels = settings.labels;
 
   return (
@@ -28,46 +27,30 @@ export function Dashboard({ data, today, onOpenSettings }: Props) {
       {warnings.length > 0 && (
         <section aria-label="Warnings" className="space-y-2 sm:col-span-2">
           {warnings.map((w) => (
-            <Alert key={w.kind} tone={w.kind === "NO_BUDGET" ? "info" : "warn"}>
+            <Alert
+              key={w.kind}
+              tone={w.kind === "NO_BUDGET" ? "info" : w.kind === "NEGATIVE" ? "danger" : "warn"}
+            >
               {w.message}
             </Alert>
           ))}
         </section>
       )}
 
+      <div className="flex flex-wrap gap-2 sm:col-span-2">
+        <button type="button" className="btn btn-primary" onClick={() => onQuickAction("INCOME")}>
+          + Add income
+        </button>
+        <button type="button" className="btn" onClick={() => onQuickAction("SPEND")}>
+          Record spend
+        </button>
+        <button type="button" className="btn" onClick={() => onQuickAction("TRANSFER")}>
+          Move money
+        </button>
+      </div>
+
       <LevelCard status={status} labels={labels} onOpenSettings={onOpenSettings} />
       <GapCard status={status} labels={labels} />
-      <EtaCard eta={eta} labels={labels} />
-
-      <Card title="Breakdown">
-        <ul className="divide-y divide-line/60">
-          {BUCKETS.map((b) => (
-            <li key={b} className="flex items-center justify-between gap-2 py-2 text-sm">
-              <span>
-                {labels.buckets[b]}
-                <span
-                  className={`ml-2 rounded px-1.5 py-0.5 text-[11px] font-medium ${
-                    totals[b].countsTowardLevel
-                      ? "bg-accent/15 text-accent"
-                      : "bg-raised text-muted"
-                  }`}
-                >
-                  {totals[b].countsTowardLevel ? "Counts" : "Excluded"}
-                </span>
-              </span>
-              <span className="tabular-nums" title={formatINR(totals[b].current)}>
-                {formatINRShort(totals[b].current)}
-              </span>
-            </li>
-          ))}
-          <li className="flex justify-between py-2 text-sm font-semibold">
-            <span>Liquid total (counts toward level)</span>
-            <span className="whitespace-nowrap tabular-nums">
-              {formatINRShort(status.liquidTotal)}
-            </span>
-          </li>
-        </ul>
-      </Card>
 
       <Card title="Survival budget">
         {status.kind === "NO_BUDGET" ? (
@@ -75,22 +58,28 @@ export function Dashboard({ data, today, onOpenSettings }: Props) {
         ) : (
           <dl className="space-y-2 text-sm">
             <div className="flex justify-between">
+              <dt>Monthly B</dt>
+              <dd className="tabular-nums">{formatINR(settings.monthlySurvivalB)}</dd>
+            </div>
+            <div className="flex justify-between border-t border-line pt-2 font-semibold">
               <dt>Annual B</dt>
               <dd className="tabular-nums">{formatINR(status.annualB)}</dd>
             </div>
             <div className="flex justify-between">
-              <dt>Reliable C2 income (net, yearly)</dt>
-              <dd className="tabular-nums">- {formatINR(status.reliableC2Income)}</dd>
-            </div>
-            <div className="flex justify-between border-t border-line pt-2 font-semibold">
-              <dt>Effective annual B</dt>
-              <dd className="tabular-nums">{formatINR(status.effectiveAnnualB)}</dd>
+              <dt>Liquid total (counts to level)</dt>
+              <dd className="tabular-nums">{formatINR(status.liquidTotal)}</dd>
             </div>
           </dl>
         )}
       </Card>
 
-      <WhatIfCard settings={settings} holdings={holdings} />
+      <BucketsCard
+        bal={bal}
+        parked={parkedByBucket(holdings)}
+        settings={settings}
+        className="sm:col-span-2"
+      />
+      <WhatIfCard settings={settings} bal={bal} className="sm:col-span-2" />
       <HistoryChart snapshots={data.snapshots} settings={settings} />
     </div>
   );

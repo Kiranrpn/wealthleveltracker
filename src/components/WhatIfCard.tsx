@@ -1,20 +1,26 @@
 import { useState } from "react";
-import { whatIf } from "../lib/calc";
+import { whatIf, type Balances } from "../lib/calc";
 import { formatINRShort, formatRatio, parseAmount } from "../lib/format";
-import type { Holding, Settings } from "../lib/types";
+import type { Level, Settings } from "../lib/types";
 import { Alert, Card, Field } from "./ui";
 
-export function WhatIfCard({ settings, holdings }: { settings: Settings; holdings: Holding[] }) {
+export function WhatIfCard({
+  settings,
+  bal,
+  className = "",
+}: {
+  settings: Settings;
+  bal: Balances;
+  className?: string;
+}) {
   const [text, setText] = useState("");
-  const value = parseAmount(text);
-  const result = text.trim() === "" ? null : whatIf(settings, holdings, value);
-  const name = (l: keyof Settings["labels"]["levels"] | null) =>
-    l ? settings.labels.levels[l].name : "no level";
+  const result = text.trim() === "" ? null : whatIf(settings, bal, parseAmount(text));
+  const name = (l: Level | null) => (l ? settings.labels.levels[l].name : "no level");
 
   return (
-    <Card title="What-if: lifestyle upgrade">
+    <Card title="What-if: lifestyle upgrade" className={className}>
       <p className="mb-3 text-sm text-muted">
-        Try a new monthly survival budget with the same holdings before you commit to it.
+        Try a new monthly survival budget with the same balances before you commit to it.
       </p>
       <Field
         label="New monthly budget (₹)"

@@ -1,4 +1,5 @@
 export const BUCKETS = [
+  "SURVIVAL",
   "EMERGENCY",
   "C1_LIQUID",
   "C2A_BUSINESS",
@@ -7,10 +8,8 @@ export const BUCKETS = [
 ] as const;
 export type Bucket = (typeof BUCKETS)[number];
 
-/** Buckets whose currentValue counts toward the liquid total (and therefore the level). */
+/** Buckets whose ledger balance counts toward the liquid total (and therefore the level). */
 export const LIQUID_BUCKETS: readonly Bucket[] = ["EMERGENCY", "C1_LIQUID"];
-/** Buckets that may carry a net annual income. */
-export const C2_BUCKETS: readonly Bucket[] = ["C2A_BUSINESS", "C2B_ILLIQUID"];
 
 export const INCOME_SOURCES = [
   "Salary",
@@ -26,6 +25,56 @@ export type IncomeSource = (typeof INCOME_SOURCES)[number];
 export const LEVELS = ["L0", "L1", "L2", "L3"] as const;
 export type Level = (typeof LEVELS)[number];
 
+/** Share of each income entry that goes to each bucket, as fractions summing to 1. */
+export type Split = Record<Bucket, number>;
+
+/** One line of a transaction: positive adds to the bucket, negative takes from it. */
+export interface Posting {
+  bucket: Bucket;
+  amount: number;
+}
+
+interface TxBase {
+  id: string;
+  date: string; // ISO date (YYYY-MM-DD)
+  notes?: string;
+  postings: Posting[];
+}
+
+/** Income split across buckets. Postings are positive and sum to the net amount. */
+export interface IncomeTx extends TxBase {
+  kind: "INCOME";
+  source: IncomeSource;
+  /** Amount as entered. Post-tax unless isPretax is true. */
+  amount: number;
+  isPretax?: boolean;
+}
+
+/** Money moved from one bucket to another. Two postings: -amount and +amount. */
+export interface TransferTx extends TxBase {
+  kind: "TRANSFER";
+}
+
+/** Money spent out of one bucket. One negative posting. */
+export interface SpendTx extends TxBase {
+  kind: "SPEND";
+  category?: string;
+}
+
+/**
+ * Balance correction: opening balances, market value changes of holdings, write-offs.
+ * One posting, positive or negative.
+ */
+export interface AdjustTx extends TxBase {
+  kind: "ADJUST";
+  /** Set when the adjustment was created by a holding change. */
+  holdingId?: string;
+}
+
+export type Transaction = IncomeTx | TransferTx | SpendTx | AdjustTx;
+export type TxKind = Transaction["kind"];
+
+/** Where part of a bucket's money is parked. The bucket's balance lives in the ledger. */
 export interface Holding {
   id: string;
   name: string; // e.g. "Nifty 50 index fund"
@@ -34,26 +83,14 @@ export interface Holding {
   whereParked: string; // platform, bank, or location
   investedAmount: number; // INR, >= 0
   currentValue: number; // INR, >= 0
-  lastUpdated: string; // ISO date (YYYY-MM-DD)
-  netAnnualIncome?: number; // only meaningful for C2 buckets
-  incomeIsReliable?: boolean; // only meaningful for C2 buckets
-  notes?: string;
-}
-
-export interface IncomeEntry {
-  id: string;
-  date: string; // ISO date (YYYY-MM-DD)
-  source: IncomeSource;
-  amount: number; // INR, > 0. Post-tax unless isPretax is true.
-  /** Only used when tax mode is enabled in Settings. The tax % is deducted at calculation time. */
-  isPretax?: boolean;
+  lastUpdated: string; // ISO date
   notes?: string;
 }
 
 export interface TaxSettings {
-  /** When true, income entries can be flagged as pre-tax. */
+  /** When true, income can be entered pre-tax. */
   enabled: boolean;
-  /** Tax rate applied to pre-tax entries, 0 to 0.99. */
+  /** Tax rate applied to pre-tax income, 0 to 0.99. */
   rate: number;
 }
 
@@ -73,9 +110,8 @@ export interface Labels {
 export interface Settings {
   monthlySurvivalB: number;
   thresholds: { L1: number; L2: number; L3: number }; // defaults 1.25, 10, 35
-  savingsShare: { L0: number; L1: number; L2: number }; // defaults 0.45, 0.55, 0.60
-  expectedReturn: number; // default 0.10
-  inflationRate: number; // default 0.06
+  /** Income split for each level. The split for your current level is used by default. */
+  splits: Record<Level, Split>;
   staleDays: number; // default 90
   tax: TaxSettings;
   labels: Labels;
@@ -84,16 +120,15 @@ export interface Settings {
 export interface Snapshot {
   date: string; // ISO date, one per calendar month max
   liquidTotal: number;
-  effectiveAnnualB: number;
-  /** null when effective annual B is 0 (reliable income covers survival, ratio is unbounded). */
-  ratio: number | null;
+  annualB: number;
+  ratio: number;
   level: Level;
 }
 
 export interface AppData {
-  schemaVersion: 1;
+  schemaVersion: 2;
   settings: Settings;
+  transactions: Transaction[];
   holdings: Holding[];
-  income: IncomeEntry[];
   snapshots: Snapshot[];
 }

@@ -1,11 +1,30 @@
-import type { AppData, Settings } from "./types";
+import type { AppData, Settings, Split } from "./types";
 
+function split(p: Partial<Split>): Split {
+  return {
+    SURVIVAL: 0,
+    EMERGENCY: 0,
+    C1_LIQUID: 0,
+    C2A_BUSINESS: 0,
+    C2B_ILLIQUID: 0,
+    SPLURGE: 0,
+    ...p,
+  };
+}
+
+/**
+ * Default income splits. Savings shares follow the original spec (45% / 55% / 60%):
+ * at L0 savings build the emergency fund, from L1 they grow the liquid corpus.
+ */
 export const DEFAULT_SETTINGS: Settings = {
   monthlySurvivalB: 0,
   thresholds: { L1: 1.25, L2: 10, L3: 35 },
-  savingsShare: { L0: 0.45, L1: 0.55, L2: 0.6 },
-  expectedReturn: 0.1,
-  inflationRate: 0.06,
+  splits: {
+    L0: split({ SURVIVAL: 0.5, EMERGENCY: 0.45, SPLURGE: 0.05 }),
+    L1: split({ SURVIVAL: 0.4, C1_LIQUID: 0.55, SPLURGE: 0.05 }),
+    L2: split({ SURVIVAL: 0.35, C1_LIQUID: 0.6, SPLURGE: 0.05 }),
+    L3: split({ SURVIVAL: 0.35, C1_LIQUID: 0.55, SPLURGE: 0.1 }),
+  },
   staleDays: 90,
   tax: { enabled: false, rate: 0.3 },
   labels: {
@@ -18,6 +37,7 @@ export const DEFAULT_SETTINGS: Settings = {
     },
     finalMessage: "YOU DID IT",
     buckets: {
+      SURVIVAL: "Survival",
       EMERGENCY: "Emergency",
       C1_LIQUID: "C1 Liquid",
       C2A_BUSINESS: "C2a Business",
@@ -33,10 +53,10 @@ export function defaultSettings(): Settings {
 
 export function emptyAppData(): AppData {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     settings: defaultSettings(),
+    transactions: [],
     holdings: [],
-    income: [],
     snapshots: [],
   };
 }

@@ -1,26 +1,44 @@
 import { useState } from "react";
-import { bucketTotals, daysBetween, isC2Bucket } from "../lib/calc";
+import { daysBetween, parkedByBucket, roundMoney, type Balances } from "../lib/calc";
 import { formatDate, formatINR, formatINRShort, parseAmount } from "../lib/format";
+import type { HoldingAddMode, HoldingRemoveMode } from "../lib/ledger";
 import { BUCKETS, type Holding, type Labels } from "../lib/types";
 import { HoldingForm } from "./HoldingForm";
 import { Card, ConfirmDialog } from "./ui";
 
 interface Props {
   holdings: Holding[];
+  bal: Balances;
   labels: Labels;
   staleDays: number;
   today: string;
-  onUpsert: (h: Holding) => void;
-  onDelete: (id: string) => void;
+  onAdd: (h: Holding, mode: HoldingAddMode) => void;
+  onUpdate: (h: Holding) => void;
+  onRemove: (h: Holding, mode: HoldingRemoveMode) => void;
 }
 
-export function HoldingsTable({ holdings, labels, staleDays, today, onUpsert, onDelete }: Props) {
+export function HoldingsTable({
+  holdings,
+  bal,
+  labels,
+  staleDays,
+  today,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: Props) {
   const [editing, setEditing] = useState<Holding | "new" | null>(null);
   const [quickId, setQuickId] = useState<string | null>(null);
   const [quickValue, setQuickValue] = useState("");
   const [quickError, setQuickError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Holding | null>(null);
-  const totals = bucketTotals(holdings);
+  const parked = parkedByBucket(holdings);
+  const invested = Object.fromEntries(
+    BUCKETS.map((b) => [
+      b,
+      holdings.filter((h) => h.bucket === b).reduce((s, h) => s + h.investedAmount, 0),
+    ]),
+  ) as Record<string, number>;
   const sorted = [...holdings].sort(
     (a, b) => BUCKETS.indexOf(a.bucket) - BUCKETS.indexOf(b.bucket) || a.name.localeCompare(b.name),
   );
@@ -37,20 +55,25 @@ export function HoldingsTable({ holdings, labels, staleDays, today, onUpsert, on
       setQuickError("Enter a value of 0 or more");
       return;
     }
-    onUpsert({ ...h, currentValue: v, lastUpdated: today });
+    onUpdate({ ...h, currentValue: v, lastUpdated: today });
     setQuickId(null);
   }
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-muted">
+        Holdings show where each bucket&apos;s money is parked. Balances live in the ledger:
+        updating a holding&apos;s value posts the gain or loss to its bucket automatically.
+      </p>
       {editing !== null ? (
         <HoldingForm
           key={editing === "new" ? "new" : editing.id}
           initial={editing === "new" ? null : editing}
           today={today}
           labels={labels}
-          onSave={(h) => {
-            onUpsert(h);
+          onSave={(h, mode) => {
+            if (editing === "new") onAdd(h, mode);
+            else onUpdate(h);
             setEditing(null);
           }}
           onCancel={() => setEditing(null)}
@@ -154,18 +177,6 @@ export function HoldingsTable({ holdings, labels, staleDays, today, onUpsert, on
                           </div>
                         )}
                       </td>
-                      <td className="num">
-                        {isC2Bucket(h.bucket) && h.netAnnualIncome !== undefined ? (
-                          <>
-                            {formatINR(h.netAnnualIncome)}
-                            <div className="text-xs text-muted">
-                              {h.incomeIsReliable ? "Reliable" : "Not reliable"}
-                            </div>
-                          </>
-                        ) : (
-                          <span className="text-muted">n/a</span>
-                        )}
-                      </td>
                       <td>
                         <div className="flex flex-wrap justify-end gap-1">
                           <button
@@ -199,17 +210,17 @@ export function HoldingsTable({ holdings, labels, staleDays, today, onUpsert, on
                 })}
               </tbody>
               <tfoot>
-                {BUCKETS.map((b) => (
+                {BUCKETS.filter((b) => parked[b] > 0 || bal[b] !== 0).map((b) => (
                   <tr key={b} className="text-muted">
                     <th scope="row" colSpan={3} className="text-left font-medium normal-case">
-                      {labels.buckets[b]} total ({totals[b].count})
-                      {!totals[b].countsTowardLevel && (
-                        <span className="ml-1 text-xs">(excluded from level)</span>
-                      )}
+                      {labels.buckets[b]}: balance {formatINRShort(bal[b])}, cash not in holdings{" "}
+                      <span className={bal[b] - parked[b] < 0 ? "text-danger" : "text-fg"}>
+                        {formatINRShort(roundMoney(bal[b] - parked[b]))}
+                      </span>
                     </th>
-                    <td className="num">{formatINRShort(totals[b].invested)}</td>
-                    <td className="num text-fg">{formatINRShort(totals[b].current)}</td>
-                    <td colSpan={3} />
+                    <td className="num">{formatINRShort(invested[b])}</td>
+                    <td className="num text-fg">{formatINRShort(parked[b])}</td>
+                    <td colSpan={2} />
                   </tr>
                 ))}
               </tfoot>
@@ -220,13 +231,28 @@ export function HoldingsTable({ holdings, labels, staleDays, today, onUpsert, on
 
       <ConfirmDialog
         open={deleting !== null}
-        title="Delete holding?"
-        message={`"${deleting?.name ?? ""}" will be removed. This cannot be undone.`}
-        confirmLabel="Delete"
+        title="Remove holding?"
+        message={
+          deleting ? (
+            <>
+              What happened to &quot;{deleting.name}&quot; ({formatINRShort(deleting.currentValue)}
+              )? If you sold it and the money is still in {labels.buckets[deleting.bucket]}, keep
+              the cash. Otherwise its value is taken out of the bucket.
+            </>
+          ) : (
+            ""
+          )
+        }
+        altLabel="Sold, keep cash in bucket"
+        onAlt={() => {
+          if (deleting) onRemove(deleting, "KEEP_CASH");
+          setDeleting(null);
+        }}
+        confirmLabel="Remove value from bucket"
         danger
         onCancel={() => setDeleting(null)}
         onConfirm={() => {
-          if (deleting) onDelete(deleting.id);
+          if (deleting) onRemove(deleting, "REMOVE_VALUE");
           setDeleting(null);
         }}
       />

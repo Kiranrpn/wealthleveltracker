@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { isC2Bucket } from "../lib/calc";
 import { parseAmount } from "../lib/format";
+import type { HoldingAddMode } from "../lib/ledger";
 import { fieldErrors, holdingSchema } from "../lib/schema";
 import { newId } from "../lib/storage";
 import { BUCKETS, type Bucket, type Holding, type Labels } from "../lib/types";
@@ -14,8 +14,6 @@ interface Draft {
   investedAmount: string;
   currentValue: string;
   lastUpdated: string;
-  netAnnualIncome: string;
-  incomeIsReliable: boolean;
   notes: string;
 }
 
@@ -28,8 +26,6 @@ function toDraft(h: Holding | null, today: string): Draft {
     investedAmount: h ? String(h.investedAmount) : "",
     currentValue: h ? String(h.currentValue) : "",
     lastUpdated: h?.lastUpdated ?? today,
-    netAnnualIncome: h?.netAnnualIncome !== undefined ? String(h.netAnnualIncome) : "",
-    incomeIsReliable: h?.incomeIsReliable ?? false,
     notes: h?.notes ?? "",
   };
 }
@@ -38,14 +34,14 @@ interface Props {
   initial: Holding | null;
   today: string;
   labels: Labels;
-  onSave: (h: Holding) => void;
+  onSave: (h: Holding, mode: HoldingAddMode) => void;
   onCancel: () => void;
 }
 
 export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props) {
   const [draft, setDraft] = useState<Draft>(() => toDraft(initial, today));
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const showC2 = isC2Bucket(draft.bucket);
+  const [addMode, setAddMode] = useState<HoldingAddMode>("FUNDED");
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
   function submit(e: FormEvent) {
@@ -59,13 +55,6 @@ export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props)
       investedAmount: parseAmount(draft.investedAmount),
       currentValue: parseAmount(draft.currentValue),
       lastUpdated: draft.lastUpdated,
-      ...(showC2
-        ? {
-            netAnnualIncome:
-              draft.netAnnualIncome.trim() === "" ? undefined : parseAmount(draft.netAnnualIncome),
-            incomeIsReliable: draft.incomeIsReliable,
-          }
-        : {}),
       notes: draft.notes.trim() === "" ? undefined : draft.notes,
     };
     const parsed = holdingSchema.safeParse(candidate);
@@ -74,14 +63,10 @@ export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props)
       return;
     }
     setErrors({});
-    onSave(parsed.data as Holding);
+    onSave(parsed.data, addMode);
   }
 
-  const money = (
-    key: "investedAmount" | "currentValue" | "netAnnualIncome",
-    label: string,
-    hint?: string,
-  ) => (
+  const money = (key: "investedAmount" | "currentValue", label: string, hint?: string) => (
     <Field label={label} error={errors[key]} hint={hint}>
       {(p) => (
         <input
@@ -169,22 +154,45 @@ export function HoldingForm({ initial, today, labels, onSave, onCancel }: Props)
             />
           )}
         </Field>
-        {showC2 && (
-          <>
-            {money("netAnnualIncome", "Net annual income (₹)", "After all costs and taxes")}
-            <div className="flex items-center gap-2 sm:col-span-2">
-              <input
-                id="incomeIsReliable"
-                type="checkbox"
-                className="h-4 w-4 accent-[rgb(var(--c-accent))]"
-                checked={draft.incomeIsReliable}
-                onChange={(e) => set("incomeIsReliable", e.target.checked)}
-              />
-              <label htmlFor="incomeIsReliable" className="text-sm">
-                Income is reliable (it will reduce the corpus you need)
+        {initial === null ? (
+          <fieldset className="rounded-lg border border-line p-3 sm:col-span-2">
+            <legend className="px-1 text-sm font-medium">
+              How does this affect the {labels.buckets[draft.bucket]} balance?
+            </legend>
+            <div className="space-y-2 text-sm">
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="addMode"
+                  className="mt-1 accent-[rgb(var(--c-accent))]"
+                  checked={addMode === "FUNDED"}
+                  onChange={() => setAddMode("FUNDED")}
+                />
+                <span>
+                  Bought with money already in {labels.buckets[draft.bucket]}. The balance stays the
+                  same.
+                </span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input
+                  type="radio"
+                  name="addMode"
+                  className="mt-1 accent-[rgb(var(--c-accent))]"
+                  checked={addMode === "ADD_VALUE"}
+                  onChange={() => setAddMode("ADD_VALUE")}
+                />
+                <span>
+                  Owned before I started this ledger. Add its current value to{" "}
+                  {labels.buckets[draft.bucket]}.
+                </span>
               </label>
             </div>
-          </>
+          </fieldset>
+        ) : (
+          <p className="text-sm text-muted sm:col-span-2">
+            Changing the current value posts the gain or loss to the bucket. Moving it to another
+            bucket moves its value too.
+          </p>
         )}
         <Field label="Notes" error={errors.notes} className="sm:col-span-2">
           {(p) => (

@@ -1,21 +1,64 @@
 # Wealthy?
 
-A private, single-user web app that answers one question: **which wealth level am I at, and how much more liquid money do I need to reach the next one?**
+A private, single-user money app that answers one question: **which wealth level am I at, and how much more liquid money do I need to reach the next one?**
 
-You log holdings and income. The app works out the rest. Currency is Indian Rupees (INR) with lakh and crore formatting. No backend, no login, no external calls: everything stays in your browser.
+Every rupee you earn is split into buckets and tracked as a ledger. Currency is Indian Rupees (INR) with lakh and crore formatting. No backend, no login, no external calls: everything stays on your device.
 
-> **Disclaimer:** Wealthy? is a personal tracking tool, not financial advice. The numbers are only as good as what you enter. Consult a qualified adviser before making financial decisions.
+> **Disclaimer:** Wealthy? is a personal tracking tool, not financial advice. The numbers are only as good as what you enter.
 
 ## Screenshots
 
-_Add screenshots here (`docs/dashboard.png`, `docs/holdings.png`)._
+_Add screenshots here (`docs/dashboard.png`, `docs/ledger.png`)._
 
-## The level formula, in plain language
+## How it works
 
-1. **B** is your monthly survival budget: what you must spend each month to live. Annual B = B x 12.
-2. **Liquid total** is the current value of everything in the **Emergency** and **C1 Liquid** buckets. Business stakes (C2a), illiquid assets like land (C2b) and Splurge money are shown but **never count** toward your level.
-3. **Effective annual B** = Annual B minus any **net, reliable** yearly income from C2 holdings (never below 0). Dependable passive income means your corpus has less to cover.
-4. **Coverage ratio** = Liquid total / Effective annual B. "12.4x" means your liquid money covers 12.4 years of survival spending.
+### Buckets and the ledger
+
+Six buckets, each with a running balance:
+
+| Bucket       | What it is for                            | Counts toward level |
+| ------------ | ----------------------------------------- | ------------------- |
+| Survival     | Money for this month's essential spending | No                  |
+| Emergency    | Emergency fund                            | **Yes**             |
+| C1 Liquid    | Liquid corpus (index funds, FDs, cash)    | **Yes**             |
+| C2a Business | Business stakes                           | No                  |
+| C2b Illiquid | Land, locked-in assets                    | No                  |
+| Splurge      | Guilt-free spending                       | No                  |
+
+A bucket's balance is the sum of its ledger entries. There are four kinds:
+
+- **Income**: split across buckets. The split for your current level fills in automatically; you can change any bucket's amount for that one entry (for example a bonus 100% to C1 Liquid). The amounts must add up to the income.
+- **Spend**: takes money out of one bucket. You cannot spend more than the bucket holds.
+- **Move money**: moves an amount from one bucket to another (reallocation). Same rule: no overdrawing.
+- **Adjust balance**: opening balances (money you had before starting) and corrections.
+
+Default income splits (edit them in Settings > Income split):
+
+| Level | Survival | Emergency | C1 Liquid | Splurge |
+| ----- | -------- | --------- | --------- | ------- |
+| L0    | 50%      | 45%       | 0%        | 5%      |
+| L1    | 40%      | 0%        | 55%       | 5%      |
+| L2    | 35%      | 0%        | 60%       | 5%      |
+| L3    | 35%      | 0%        | 55%       | 10%     |
+
+The savings shares (45 / 55 / 60%) come from the original spec. At L0 savings build the emergency fund; from L1 they grow the corpus.
+
+### Holdings
+
+Holdings show where a bucket's money is parked (which fund, which bank). The ledger stays the single source of truth, so nothing is counted twice:
+
+- Adding a holding: choose "bought with money already in the bucket" (balance unchanged) or "owned before I started" (its value is added as an opening balance).
+- Updating a holding's value posts the gain or loss to its bucket automatically.
+- Moving a holding to another bucket moves its value.
+- Removing a holding: "sold, keep the cash" (balance unchanged) or "remove its value".
+
+The Holdings page shows, per bucket, how much is in holdings and how much is still cash.
+
+### The level formula
+
+1. **B** is your monthly survival budget. Annual B = B x 12.
+2. **Liquid total** = Emergency balance + C1 Liquid balance.
+3. **Coverage ratio** = Liquid total / Annual B. "12.4x" means your liquid money covers 12.4 years of survival spending.
 
 | Level | Coverage ratio (defaults) | Meaning                                                           |
 | ----- | ------------------------- | ----------------------------------------------------------------- |
@@ -24,48 +67,27 @@ _Add screenshots here (`docs/dashboard.png`, `docs/holdings.png`)._
 | L2    | 10 to below 35            | Corpus pays part of survival                                      |
 | L3    | 35 and above              | Corpus can cover survival. Salary job is a choice. **YOU DID IT** |
 
-A value exactly on a boundary belongs to the higher level.
+- A value exactly on a boundary belongs to the higher level.
+- **Gap to next level** = next level's ratio x Annual B, minus Liquid total.
+- **Progress** = how far your ratio is between the current level's floor and the next one.
+- **What-if**: type a new monthly B to see if a lifestyle upgrade would drop you a level, and how much extra liquid money you would need to stay.
+- **Coverage history**: one point per month. The axis stops just above the next threshold you have not reached, so early progress is visible.
 
-- **Gap to next level** = next level's ratio x Effective annual B, minus Liquid total.
-- **Progress** = how far your ratio is between the current level's floor and the next level's floor (0 to 100%).
-- At L3 tracking stops; the ratio keeps updating.
-- If reliable C2 income covers all of Annual B, effective B is 0 and you are at L3 with the label "Reliable C2 income covers your full survival budget".
-- If B is not set, no level is calculated and the app asks you to set it.
+### Settings
 
-### ETA
+Organised into sections: Budget & levels, Income split, Tax, Appearance (dark / light theme), Names & labels, Backup & data. Every name, label, threshold and split is editable.
 
-Monthly contribution = your **6-month average net income** x the **savings share** for your current level (defaults 45% / 55% / 60% at L0 / L1 / L2). The app then simulates month by month:
+### Decisions where the spec was silent
 
-```
-liquid = liquid x (1 + expectedReturn / 12) + contribution
-target = target x (1 + inflationRate / 12)
-```
-
-and reports the first month where liquid reaches the target. Rules:
-
-- No income entries: "no data".
-- Zero contribution and liquid below target: "not reachable" (even if returns beat inflation; the ETA measures progress you fund, not a market bet).
-- Not reached within 50 years: "not reachable".
-
-### What-if: lifestyle upgrade
-
-Type a new monthly B to see the level you would be at with the same holdings. If it would drop you a level, you get a warning plus the extra liquid money needed to stay where you are.
-
-## Decisions where the spec was silent or contradictory
-
-| Topic                       | Decision                                                                                                                                                             |
-| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Effective annual B          | The spec defines it as `max(0, Annual B)` but test 7 requires reliable C2 income to bring it to 0. Implemented as `max(0, Annual B - reliable C2 net income)`.       |
-| Ratio when effective B is 0 | Shown as "covered by income" instead of a number; stored as `null` in snapshots. Never Infinity.                                                                     |
-| Level vs gap consistency    | Level is decided by comparing liquid money to threshold money, so the level and gap can never disagree because of floating-point rounding.                           |
-| 6-month average             | Covers the last 6 calendar months including the current one. Divided by the months since your first entry in that window (max 6), so a new user is not divided by 6. |
-| Return and inflation        | Simple monthly rates (annual / 12). Contribution is held flat (conservative).                                                                                        |
-| Pre-tax income              | Settings > Tax lets you turn on pre-tax entry and set a tax %. Each income entry can then be flagged pre-tax; the net amount is `amount x (1 - tax%)`.               |
-| Editable names              | App name, level names, level meanings, final message and bucket labels are all editable in Settings. Internal bucket keys stay fixed so backups stay compatible.     |
-| Snapshots                   | One per calendar month, overwritten on load and on every data change. Only created once B is set.                                                                    |
-| Reset to defaults           | Resets thresholds, assumptions, tax and labels; keeps your B.                                                                                                        |
-| Theme                       | Dark by default, light available from the header (remembered per browser).                                                                                           |
-| Corrupt saved data          | Set aside under a `wealthy-app-data-corrupt-<time>` key and the app starts fresh with a visible error.                                                               |
+| Topic              | Decision                                                                                                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ledger vs holdings | Ledger is the source of truth; holding changes post ledger entries. Avoids double counting.                                                                                       |
+| Overspending       | Spends and moves cannot exceed the bucket balance at entry time. Deleting old entries can still push a bucket below zero; the dashboard then warns.                               |
+| Pre-tax income     | Settings > Tax turns on pre-tax entry with your tax %. The after-tax amount is what gets split.                                                                                   |
+| Rounding           | Splits are calculated in paise; any leftover paisa goes to the bucket with the largest share, so parts always add up exactly.                                                     |
+| Level vs gap       | Level is decided by comparing rupees to rupees, so level and gap can never disagree because of rounding.                                                                          |
+| Removed features   | ETA and reliable C2 income were removed to keep the flow simple.                                                                                                                  |
+| Data from v1       | Old backups import cleanly: holdings become opening balances, old income entries are kept (posted to Survival with an offsetting opening entry), so every bucket keeps its value. |
 
 ## Run locally
 
@@ -82,7 +104,7 @@ Other scripts:
 npm run build      # typecheck + production build into dist/
 npm run preview    # serve the production build
 npm test           # run all tests once
-npm run coverage   # tests + coverage (calc.ts and eta.ts must be 100%)
+npm run coverage   # tests + coverage (calc.ts and ledger.ts must be 100%)
 npm run typecheck
 npm run lint
 npm run format
@@ -90,11 +112,7 @@ npm run format
 
 ## Tests
 
-`tests/calc.test.ts`, `tests/eta.test.ts` and `tests/storage.test.ts` cover every case in the spec (numbered 1 to 14 in the test names), plus edge cases. `tests/app.test.tsx` drives the UI end to end in jsdom. Coverage of `src/lib/calc.ts` and `src/lib/eta.ts` is enforced at 100%.
-
-## Light and dark mode
-
-Dark by default. The **Light / Dark** button in the header switches theme; the choice is remembered on that device and applied before the page paints, so there is no flash.
+`tests/calc.test.ts` (levels, balances, splits, what-if, snapshots, warnings), `tests/ledger.test.ts` (income, spend, move, adjust, holding effects) and `tests/storage.test.ts` (validation, export/import round trip, v1 migration, CSV). `tests/app.test.tsx` drives the real UI: add income with a split, overspend blocked, move money, opening balance, level change, holding revaluation, theme. Coverage of `src/lib/calc.ts` and `src/lib/ledger.ts` is enforced at 100%.
 
 ## Try it in your browser
 
@@ -128,7 +146,7 @@ Data lives in each browser's localStorage under the key `wealthy-app-data`. Expo
 
 ```
 src/
-  lib/          pure logic, no React (types, schema, calc, eta, format, storage, defaults)
+  lib/          pure logic, no React (types, schema, calc, ledger, format, storage, defaults)
   components/   UI only: display results and collect input
   App.tsx       state, persistence, routing
 tests/          Vitest + React Testing Library

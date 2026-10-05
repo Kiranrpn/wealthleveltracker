@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUCKETS, C2_BUCKETS, INCOME_SOURCES, LEVELS } from "./types";
+import { BUCKETS, INCOME_SOURCES, LEVELS } from "./types";
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -41,44 +41,98 @@ export const bucketSchema = z.enum(BUCKETS, {
   errorMap: () => ({ message: `Bucket must be one of: ${BUCKETS.join(", ")}` }),
 });
 
-export const holdingSchema = z
-  .object({
-    id: z.string().min(1, "id is required"),
-    name: label("Name", 120),
-    bucket: bucketSchema,
-    type: z.string().trim().max(80, "Type must be 80 characters or fewer"),
-    whereParked: z.string().trim().max(120, "Where parked must be 120 characters or fewer"),
-    investedAmount: money("Invested amount"),
-    currentValue: money("Current value"),
-    lastUpdated: isoDateSchema,
-    netAnnualIncome: money("Net annual income").optional(),
-    incomeIsReliable: z.boolean().optional(),
-    notes: z.string().max(1000, "Notes must be 1000 characters or fewer").optional(),
-  })
-  .transform((h) => {
-    // Income fields only mean something for C2 buckets; drop them elsewhere.
-    if (C2_BUCKETS.includes(h.bucket)) return h;
-    const { netAnnualIncome: _n, incomeIsReliable: _r, ...rest } = h;
-    void _n;
-    void _r;
-    return rest;
-  });
+export const holdingSchema = z.object({
+  id: z.string().min(1, "id is required"),
+  name: label("Name", 120),
+  bucket: bucketSchema,
+  type: z.string().trim().max(80, "Type must be 80 characters or fewer"),
+  whereParked: z.string().trim().max(120, "Where parked must be 120 characters or fewer"),
+  investedAmount: money("Invested amount"),
+  currentValue: money("Current value"),
+  lastUpdated: isoDateSchema,
+  notes: z.string().max(1000, "Notes must be 1000 characters or fewer").optional(),
+});
 
-export const incomeEntrySchema = z.object({
+const signedMoney = z
+  .number({ invalid_type_error: "Amount must be a number" })
+  .finite("Amount must be a finite number");
+
+const postingSchema = z.object({ bucket: bucketSchema, amount: signedMoney });
+
+const txBase = {
   id: z.string().min(1, "id is required"),
   date: isoDateSchema,
+  notes: z.string().max(1000, "Notes must be 1000 characters or fewer").optional(),
+};
+
+const incomeTxSchema = z.object({
+  ...txBase,
+  kind: z.literal("INCOME"),
   source: z.enum(INCOME_SOURCES, {
     errorMap: () => ({ message: `Source must be one of: ${INCOME_SOURCES.join(", ")}` }),
   }),
   amount: money("Amount").positive("Amount must be greater than 0"),
   isPretax: z.boolean().optional(),
-  notes: z.string().max(1000, "Notes must be 1000 characters or fewer").optional(),
+  postings: z
+    .array(postingSchema.extend({ amount: money("Bucket amount") }))
+    .min(1, "Income must go to at least one bucket"),
 });
+
+const transferTxSchema = z.object({
+  ...txBase,
+  kind: z.literal("TRANSFER"),
+  postings: z
+    .array(postingSchema)
+    .length(2, "A transfer has exactly two buckets")
+    .refine((p) => p[0].bucket !== p[1].bucket, "A transfer needs two different buckets")
+    .refine(
+      (p) => p[0].amount < 0 && Math.abs(p[0].amount + p[1].amount) < 0.005,
+      "A transfer must take from one bucket and add the same amount to the other",
+    ),
+});
+
+const spendTxSchema = z.object({
+  ...txBase,
+  kind: z.literal("SPEND"),
+  category: z.string().max(80, "Category must be 80 characters or fewer").optional(),
+  postings: z
+    .array(postingSchema.extend({ amount: signedMoney.negative("A spend must reduce the bucket") }))
+    .length(1, "A spend comes from exactly one bucket"),
+});
+
+const adjustTxSchema = z.object({
+  ...txBase,
+  kind: z.literal("ADJUST"),
+  holdingId: z.string().optional(),
+  postings: z
+    .array(postingSchema.refine((p) => p.amount !== 0, "Adjustment cannot be 0"))
+    .length(1, "An adjustment changes exactly one bucket"),
+});
+
+export const transactionSchema = z.discriminatedUnion("kind", [
+  incomeTxSchema,
+  transferTxSchema,
+  spendTxSchema,
+  adjustTxSchema,
+]);
 
 const levelLabelSchema = z.object({
   name: label("Level name", 30),
   meaning: label("Level meaning", 200),
 });
+
+const splitSchema = z
+  .object({
+    SURVIVAL: fraction("Survival share"),
+    EMERGENCY: fraction("Emergency share"),
+    C1_LIQUID: fraction("C1 Liquid share"),
+    C2A_BUSINESS: fraction("C2a Business share"),
+    C2B_ILLIQUID: fraction("C2b Illiquid share"),
+    SPLURGE: fraction("Splurge share"),
+  })
+  .refine((s) => Math.abs(Object.values(s).reduce((a, b) => a + b, 0) - 1) < 1e-4, {
+    message: "Shares must add up to 100%",
+  });
 
 export const settingsSchema = z.object({
   monthlySurvivalB: money("Monthly survival budget"),
@@ -91,19 +145,9 @@ export const settingsSchema = z.object({
     .refine((t) => t.L1 < t.L2 && t.L2 < t.L3, {
       message: "Thresholds must increase: L1 < L2 < L3",
     }),
-  savingsShare: z.object({
-    L0: fraction("L0 savings share"),
-    L1: fraction("L1 savings share"),
-    L2: fraction("L2 savings share"),
-  }),
-  expectedReturn: z
-    .number()
-    .finite()
-    .min(-0.5, "Expected return cannot be below -50%")
-    .max(1, "Expected return cannot exceed 100%"),
-  inflationRate: fraction("Inflation rate", 0.5),
+  splits: z.object({ L0: splitSchema, L1: splitSchema, L2: splitSchema, L3: splitSchema }),
   staleDays: z
-    .number()
+    .number({ invalid_type_error: "Stale days must be a number" })
     .int("Stale days must be a whole number")
     .min(1, "Stale days must be at least 1")
     .max(3650, "Stale days cannot exceed 3650"),
@@ -121,6 +165,7 @@ export const settingsSchema = z.object({
     }),
     finalMessage: label("Final message", 80),
     buckets: z.object({
+      SURVIVAL: label("Bucket label", 40),
       EMERGENCY: label("Bucket label", 40),
       C1_LIQUID: label("Bucket label", 40),
       C2A_BUSINESS: label("Bucket label", 40),
@@ -133,16 +178,16 @@ export const settingsSchema = z.object({
 export const snapshotSchema = z.object({
   date: isoDateSchema,
   liquidTotal: money("Snapshot liquid total"),
-  effectiveAnnualB: money("Snapshot effective annual B"),
-  ratio: z.number().finite().nonnegative().nullable(),
+  annualB: money("Snapshot annual B"),
+  ratio: z.number().finite().nonnegative(),
   level: z.enum(LEVELS),
 });
 
 export const appDataSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.literal(2),
   settings: settingsSchema,
+  transactions: z.array(transactionSchema),
   holdings: z.array(holdingSchema),
-  income: z.array(incomeEntrySchema),
   snapshots: z.array(snapshotSchema),
 });
 

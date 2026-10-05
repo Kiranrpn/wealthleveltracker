@@ -1,19 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Dashboard } from "./components/Dashboard";
 import { HoldingsTable } from "./components/HoldingsTable";
-import { IncomeTable } from "./components/IncomeTable";
-import { SettingsPanel } from "./components/SettingsPanel";
+import { LedgerPage, type FormState } from "./components/LedgerPage";
+import { SettingsPanel, type Theme } from "./components/SettingsPanel";
 import { Alert } from "./components/ui";
-import { withCurrentSnapshot } from "./lib/calc";
+import { balances, withCurrentSnapshot } from "./lib/calc";
 import { emptyAppData } from "./lib/defaults";
 import { todayISO } from "./lib/format";
-import { clearData, loadData, saveData, type KeyValueStore } from "./lib/storage";
-import type { AppData } from "./lib/types";
+import {
+  holdingAddEffects,
+  holdingRemoveEffects,
+  holdingUpdateEffects,
+  type HoldingAddMode,
+  type HoldingRemoveMode,
+} from "./lib/ledger";
+import { clearData, loadData, newId, saveData, type KeyValueStore } from "./lib/storage";
+import type { AppData, Holding, Transaction, TxKind } from "./lib/types";
 
 const PAGES = [
   { id: "dashboard", label: "Dashboard" },
+  { id: "ledger", label: "Ledger" },
   { id: "holdings", label: "Holdings" },
-  { id: "income", label: "Income" },
   { id: "settings", label: "Settings" },
 ] as const;
 type PageId = (typeof PAGES)[number]["id"];
@@ -45,7 +52,7 @@ function pageFromHash(): PageId {
   return PAGES.some((p) => p.id === id) ? (id as PageId) : "dashboard";
 }
 
-function readTheme(): "dark" | "light" {
+function readTheme(): Theme {
   try {
     return window.localStorage.getItem(THEME_KEY) === "light" ? "light" : "dark";
   } catch {
@@ -59,7 +66,8 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
   const [data, setData] = useState<AppData>(() => withCurrentSnapshot(initial.data, today));
   const [saveError, setSaveError] = useState<string | null>(null);
   const [page, setPage] = useState<PageId>(pageFromHash);
-  const [theme, setTheme] = useState<"dark" | "light">(readTheme);
+  const [theme, setTheme] = useState<Theme>(readTheme);
+  const [ledgerForm, setLedgerForm] = useState<FormState>(null);
 
   // Persist on every change.
   useEffect(() => {
@@ -97,26 +105,40 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
 
   const actions = useMemo(
     () => ({
-      upsertHolding: (h: AppData["holdings"][number]) =>
+      upsertTx: (tx: Transaction) =>
         update((d) => {
-          const exists = d.holdings.some((x) => x.id === h.id);
+          const exists = d.transactions.some((x) => x.id === tx.id);
           return {
             ...d,
-            holdings: exists ? d.holdings.map((x) => (x.id === h.id ? h : x)) : [...d.holdings, h],
+            transactions: exists
+              ? d.transactions.map((x) => (x.id === tx.id ? tx : x))
+              : [...d.transactions, tx],
           };
         }),
-      deleteHolding: (id: string) =>
-        update((d) => ({ ...d, holdings: d.holdings.filter((x) => x.id !== id) })),
-      upsertIncome: (e: AppData["income"][number]) =>
+      deleteTx: (id: string) =>
+        update((d) => ({ ...d, transactions: d.transactions.filter((x) => x.id !== id) })),
+      addHolding: (h: Holding, mode: HoldingAddMode) =>
+        update((d) => ({
+          ...d,
+          holdings: [...d.holdings, h],
+          transactions: [...d.transactions, ...holdingAddEffects(h, mode, todayISO(), newId)],
+        })),
+      updateHolding: (h: Holding) =>
         update((d) => {
-          const exists = d.income.some((x) => x.id === e.id);
+          const prev = d.holdings.find((x) => x.id === h.id);
+          if (!prev) return d;
           return {
             ...d,
-            income: exists ? d.income.map((x) => (x.id === e.id ? e : x)) : [...d.income, e],
+            holdings: d.holdings.map((x) => (x.id === h.id ? h : x)),
+            transactions: [...d.transactions, ...holdingUpdateEffects(prev, h, todayISO(), newId)],
           };
         }),
-      deleteIncome: (id: string) =>
-        update((d) => ({ ...d, income: d.income.filter((x) => x.id !== id) })),
+      removeHolding: (h: Holding, mode: HoldingRemoveMode) =>
+        update((d) => ({
+          ...d,
+          holdings: d.holdings.filter((x) => x.id !== h.id),
+          transactions: [...d.transactions, ...holdingRemoveEffects(h, mode, todayISO(), newId)],
+        })),
       saveSettings: (s: AppData["settings"]) => update((d) => ({ ...d, settings: s })),
       replaceData: (next: AppData) => update(() => next),
       deleteAll: () => {
@@ -130,6 +152,12 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
   const go = (id: PageId) => {
     window.location.hash = `/${id}`;
     setPage(id);
+    window.scrollTo?.(0, 0);
+  };
+
+  const quickAction = (kind: TxKind) => {
+    setLedgerForm({ kind, editing: null });
+    go("ledger");
   };
 
   return (
@@ -141,20 +169,10 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
         Skip to content
       </a>
       <header className="sticky top-0 z-40 border-b border-line bg-bg/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-3">
-          <h1 className="text-xl font-black tracking-tight">
-            <span className="text-accent">{data.settings.labels.appName}</span>
+        <div className="mx-auto max-w-5xl px-4 pt-3">
+          <h1 className="text-xl font-black tracking-tight text-accent">
+            {data.settings.labels.appName}
           </h1>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-          >
-            <span aria-hidden="true">{theme === "dark" ? "\u2600" : "\u263E"}</span>
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
         </div>
         <nav aria-label="Main" className="mx-auto max-w-5xl overflow-x-auto px-4">
           <ul className="flex gap-1">
@@ -186,31 +204,42 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
         {saveError && <Alert tone="danger">{saveError}</Alert>}
 
         {page === "dashboard" && (
-          <Dashboard data={data} today={today} onOpenSettings={() => go("settings")} />
+          <Dashboard
+            data={data}
+            today={today}
+            onOpenSettings={() => go("settings")}
+            onQuickAction={quickAction}
+          />
+        )}
+        {page === "ledger" && (
+          <LedgerPage
+            transactions={data.transactions}
+            settings={data.settings}
+            today={today}
+            form={ledgerForm}
+            setForm={setLedgerForm}
+            onUpsert={actions.upsertTx}
+            onDelete={actions.deleteTx}
+          />
         )}
         {page === "holdings" && (
           <HoldingsTable
             holdings={data.holdings}
+            bal={balances(data.transactions)}
             labels={data.settings.labels}
             staleDays={data.settings.staleDays}
             today={today}
-            onUpsert={actions.upsertHolding}
-            onDelete={actions.deleteHolding}
-          />
-        )}
-        {page === "income" && (
-          <IncomeTable
-            income={data.income}
-            settings={data.settings}
-            today={today}
-            onUpsert={actions.upsertIncome}
-            onDelete={actions.deleteIncome}
+            onAdd={actions.addHolding}
+            onUpdate={actions.updateHolding}
+            onRemove={actions.removeHolding}
           />
         )}
         {page === "settings" && (
           <SettingsPanel
             data={data}
             today={today}
+            theme={theme}
+            onTheme={setTheme}
             onSaveSettings={actions.saveSettings}
             onReplaceData={actions.replaceData}
             onDeleteAll={actions.deleteAll}
@@ -219,7 +248,7 @@ export default function App({ store = defaultStore }: { store?: KeyValueStore })
       </main>
 
       <footer className="mx-auto mt-10 max-w-5xl px-4 text-xs text-muted">
-        Personal tracking tool, not financial advice. Data stays in this browser.
+        Personal tracking tool, not financial advice. Data stays on this device.
       </footer>
     </div>
   );

@@ -1,104 +1,515 @@
-import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { isCompleteSplit, splitTotal } from "../lib/calc";
 import { defaultSettings } from "../lib/defaults";
-import { parseAmount } from "../lib/format";
+import { formatPct, parseAmount } from "../lib/format";
 import { fieldErrors, settingsSchema } from "../lib/schema";
-import { exportJSON, holdingsToCSV, importJSON, incomeToCSV } from "../lib/storage";
-import { BUCKETS, LEVELS, type AppData, type Settings } from "../lib/types";
+import { exportJSON, holdingsToCSV, importJSON, transactionsToCSV } from "../lib/storage";
+import { BUCKETS, LEVELS, type AppData, type Level, type Settings, type Split } from "../lib/types";
 import { downloadText } from "./download";
 import { Alert, Card, ConfirmDialog, Field } from "./ui";
+
+export type Theme = "dark" | "light";
+
+const SECTIONS = [
+  { id: "budget", label: "Budget & levels" },
+  { id: "split", label: "Income split" },
+  { id: "tax", label: "Tax" },
+  { id: "appearance", label: "Appearance" },
+  { id: "labels", label: "Names & labels" },
+  { id: "data", label: "Backup & data" },
+] as const;
+type SectionId = (typeof SECTIONS)[number]["id"];
 
 interface Props {
   data: AppData;
   today: string;
+  theme: Theme;
+  onTheme: (t: Theme) => void;
   onSaveSettings: (s: Settings) => void;
   onReplaceData: (d: AppData) => void;
   onDeleteAll: () => void;
 }
 
-/** Form state: numbers as typed strings, percentages as whole-number percent strings. */
-interface Draft {
-  monthlySurvivalB: string;
-  L1: string;
-  L2: string;
-  L3: string;
-  shareL0: string;
-  shareL1: string;
-  shareL2: string;
-  expectedReturn: string;
-  inflationRate: string;
-  staleDays: string;
-  taxEnabled: boolean;
-  taxRate: string;
-  labels: Settings["labels"];
-}
-
 const pct = (f: number) => String(Math.round(f * 10000) / 100);
-const fromPct = (s: string) => parseAmount(s) / 100;
+const fromPct = (s: string) => (s.trim() === "" ? 0 : parseAmount(s) / 100);
 
-function toDraft(s: Settings): Draft {
-  return {
-    monthlySurvivalB: String(s.monthlySurvivalB),
-    L1: String(s.thresholds.L1),
-    L2: String(s.thresholds.L2),
-    L3: String(s.thresholds.L3),
-    shareL0: pct(s.savingsShare.L0),
-    shareL1: pct(s.savingsShare.L1),
-    shareL2: pct(s.savingsShare.L2),
-    expectedReturn: pct(s.expectedReturn),
-    inflationRate: pct(s.inflationRate),
-    staleDays: String(s.staleDays),
-    taxEnabled: s.tax.enabled,
-    taxRate: pct(s.tax.rate),
-    labels: JSON.parse(JSON.stringify(s.labels)) as Settings["labels"],
-  };
-}
-
-function fromDraft(d: Draft): unknown {
-  return {
-    monthlySurvivalB: parseAmount(d.monthlySurvivalB),
-    thresholds: { L1: parseAmount(d.L1), L2: parseAmount(d.L2), L3: parseAmount(d.L3) },
-    savingsShare: { L0: fromPct(d.shareL0), L1: fromPct(d.shareL1), L2: fromPct(d.shareL2) },
-    expectedReturn: fromPct(d.expectedReturn),
-    inflationRate: fromPct(d.inflationRate),
-    staleDays: parseAmount(d.staleDays),
-    tax: { enabled: d.taxEnabled, rate: fromPct(d.taxRate) },
-    labels: d.labels,
-  };
-}
-
-type Pending = { kind: "reset" } | { kind: "delete" } | { kind: "import"; data: AppData } | null;
-
-export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDeleteAll }: Props) {
-  const [draft, setDraft] = useState<Draft>(() => toDraft(data.settings));
+/** Validates a section's changes against the full settings schema and saves them. */
+function useSectionSave(onSave: (s: Settings) => void) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
-  const [importErrors, setImportErrors] = useState<string[]>([]);
-  const [pending, setPending] = useState<Pending>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  return {
+    errors,
+    saved,
+    touch: () => setSaved(false),
+    save(next: unknown) {
+      const parsed = settingsSchema.safeParse(next);
+      if (!parsed.success) {
+        setErrors(fieldErrors(parsed.error));
+        setSaved(false);
+        return false;
+      }
+      setErrors({});
+      onSave(parsed.data);
+      setSaved(true);
+      return true;
+    },
+  };
+}
 
-  const set = <K extends keyof Draft>(k: K, v: Draft[K]) => {
-    setSaved(false);
-    setDraft((d) => ({ ...d, [k]: v }));
+function SaveBar({
+  saved,
+  hasErrors,
+  extra,
+}: {
+  saved: boolean;
+  hasErrors: boolean;
+  extra?: ReactNode;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+      <button type="submit" className="btn btn-primary">
+        Save
+      </button>
+      {extra}
+      <span aria-live="polite" className="text-sm">
+        {saved && <span className="text-ok">Saved.</span>}
+        {hasErrors && <span className="text-danger">Fix the highlighted fields.</span>}
+      </span>
+    </div>
+  );
+}
+
+function NumInput({
+  label,
+  value,
+  onChange,
+  error,
+  hint,
+  suffix,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  error?: string;
+  hint?: string;
+  suffix?: string;
+}) {
+  return (
+    <Field label={label} error={error} hint={hint}>
+      {(p) => (
+        <div className="flex items-center gap-2">
+          <input
+            {...p}
+            className="input"
+            inputMode="decimal"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+          {suffix && <span className="text-sm text-muted">{suffix}</span>}
+        </div>
+      )}
+    </Field>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Budget & levels                                                      */
+/* ------------------------------------------------------------------ */
+
+function BudgetSection({
+  settings,
+  onSave,
+}: {
+  settings: Settings;
+  onSave: (s: Settings) => void;
+}) {
+  const s = useSectionSave(onSave);
+  const [d, setD] = useState({
+    b: String(settings.monthlySurvivalB),
+    L1: String(settings.thresholds.L1),
+    L2: String(settings.thresholds.L2),
+    L3: String(settings.thresholds.L3),
+    stale: String(settings.staleDays),
+  });
+  const set = (k: keyof typeof d) => (v: string) => {
+    s.touch();
+    setD((x) => ({ ...x, [k]: v }));
   };
-  const setLabels = (fn: (l: Settings["labels"]) => Settings["labels"]) => {
-    setSaved(false);
-    setDraft((d) => ({ ...d, labels: fn(d.labels) }));
-  };
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    s.save({
+      ...settings,
+      monthlySurvivalB: parseAmount(d.b),
+      thresholds: { L1: parseAmount(d.L1), L2: parseAmount(d.L2), L3: parseAmount(d.L3) },
+      staleDays: parseAmount(d.stale),
+    });
+  }
+  return (
+    <form onSubmit={submit} noValidate>
+      <Card title="Budget & levels">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <NumInput
+            label="Monthly survival budget, B (₹)"
+            value={d.b}
+            onChange={set("b")}
+            error={s.errors.monthlySurvivalB}
+            hint="Your essential monthly spend, post-tax."
+          />
+          <NumInput
+            label="Flag holdings as stale after (days)"
+            value={d.stale}
+            onChange={set("stale")}
+            error={s.errors.staleDays}
+          />
+        </div>
+        <h3 className="mb-2 mt-5 text-sm font-semibold">
+          Level thresholds (years of annual B in liquid buckets)
+        </h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <NumInput
+            label={`${settings.labels.levels.L1.name} from`}
+            value={d.L1}
+            onChange={set("L1")}
+            error={s.errors["thresholds.L1"]}
+            suffix="x"
+          />
+          <NumInput
+            label={`${settings.labels.levels.L2.name} from`}
+            value={d.L2}
+            onChange={set("L2")}
+            error={s.errors["thresholds.L2"]}
+            suffix="x"
+          />
+          <NumInput
+            label={`${settings.labels.levels.L3.name} from`}
+            value={d.L3}
+            onChange={set("L3")}
+            error={s.errors["thresholds.L3"]}
+            suffix="x"
+          />
+        </div>
+        {s.errors.thresholds && (
+          <p className="error" role="alert">
+            {s.errors.thresholds}
+          </p>
+        )}
+        <SaveBar saved={s.saved} hasErrors={Object.keys(s.errors).length > 0} />
+      </Card>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Income split                                                         */
+/* ------------------------------------------------------------------ */
+
+function SplitSection({ settings, onSave }: { settings: Settings; onSave: (s: Settings) => void }) {
+  const s = useSectionSave(onSave);
+  const [level, setLevel] = useState<Level>("L0");
+  const [d, setD] = useState<Record<Level, Record<string, string>>>(
+    () =>
+      Object.fromEntries(
+        LEVELS.map((lv) => [
+          lv,
+          Object.fromEntries(BUCKETS.map((b) => [b, pct(settings.splits[lv][b])])),
+        ]),
+      ) as Record<Level, Record<string, string>>,
+  );
+  const toSplit = (lv: Level) =>
+    Object.fromEntries(BUCKETS.map((b) => [b, fromPct(d[lv][b])])) as Split;
+  const current = toSplit(level);
+  const total = splitTotal(current);
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    const parsed = settingsSchema.safeParse(fromDraft(draft));
-    if (!parsed.success) {
-      setErrors(fieldErrors(parsed.error));
-      setSaved(false);
-      return;
-    }
-    setErrors({});
-    onSaveSettings(parsed.data);
-    setDraft(toDraft(parsed.data));
-    setSaved(true);
+    s.save({ ...settings, splits: Object.fromEntries(LEVELS.map((lv) => [lv, toSplit(lv)])) });
   }
+
+  return (
+    <form onSubmit={submit} noValidate>
+      <Card title="Income split">
+        <p className="mb-3 text-sm text-muted">
+          How each income entry is divided between buckets. The split for your current level is used
+          by default; you can still change the amounts on any single entry.
+        </p>
+        <div role="tablist" aria-label="Level" className="mb-4 flex flex-wrap gap-1">
+          {LEVELS.map((lv) => {
+            const okSplit = isCompleteSplit(toSplit(lv));
+            return (
+              <button
+                key={lv}
+                type="button"
+                role="tab"
+                aria-selected={level === lv}
+                className={`btn btn-sm ${level === lv ? "btn-primary" : ""}`}
+                onClick={() => setLevel(lv)}
+              >
+                {settings.labels.levels[lv].name}
+                {!okSplit && (
+                  <span className="text-danger" aria-label="does not add up">
+                    {" "}
+                    !
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {BUCKETS.map((b) => (
+            <NumInput
+              key={`${level}-${b}`}
+              label={settings.labels.buckets[b]}
+              value={d[level][b]}
+              suffix="%"
+              onChange={(v) => {
+                s.touch();
+                setD((x) => ({ ...x, [level]: { ...x[level], [b]: v } }));
+              }}
+            />
+          ))}
+        </div>
+        <p
+          className={`mt-3 text-sm font-medium ${isCompleteSplit(current) ? "text-ok" : "text-danger"}`}
+          aria-live="polite"
+        >
+          Total for {settings.labels.levels[level].name}: {formatPct(total, 2)}
+          {!isCompleteSplit(current) && " (must be 100%)"}
+        </p>
+        {LEVELS.filter((lv) => s.errors[`splits.${lv}`]).map((lv) => (
+          <p key={lv} className="error" role="alert">
+            {settings.labels.levels[lv].name}: {s.errors[`splits.${lv}`]}
+          </p>
+        ))}
+        <SaveBar
+          saved={s.saved}
+          hasErrors={Object.keys(s.errors).length > 0}
+          extra={
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                const src = d[level];
+                s.touch();
+                setD(
+                  Object.fromEntries(LEVELS.map((lv) => [lv, { ...src }])) as Record<
+                    Level,
+                    Record<string, string>
+                  >,
+                );
+              }}
+            >
+              Use this split for all levels
+            </button>
+          }
+        />
+      </Card>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Tax                                                                  */
+/* ------------------------------------------------------------------ */
+
+function TaxSection({ settings, onSave }: { settings: Settings; onSave: (s: Settings) => void }) {
+  const s = useSectionSave(onSave);
+  const [enabled, setEnabled] = useState(settings.tax.enabled);
+  const [rate, setRate] = useState(pct(settings.tax.rate));
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    s.save({ ...settings, tax: { enabled, rate: fromPct(rate) } });
+  }
+  return (
+    <form onSubmit={submit} noValidate>
+      <Card title="Tax">
+        <div className="flex items-center gap-2">
+          <input
+            id="taxEnabled"
+            type="checkbox"
+            className="h-4 w-4 accent-[rgb(var(--c-accent))]"
+            checked={enabled}
+            onChange={(e) => {
+              s.touch();
+              setEnabled(e.target.checked);
+            }}
+          />
+          <label htmlFor="taxEnabled" className="text-sm">
+            Let me enter income pre-tax and deduct tax before splitting it
+          </label>
+        </div>
+        {enabled && (
+          <div className="mt-3 max-w-xs">
+            <NumInput
+              label="Tax rate"
+              value={rate}
+              onChange={(v) => {
+                s.touch();
+                setRate(v);
+              }}
+              error={s.errors["tax.rate"]}
+              suffix="%"
+            />
+          </div>
+        )}
+        <SaveBar saved={s.saved} hasErrors={Object.keys(s.errors).length > 0} />
+      </Card>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Appearance                                                           */
+/* ------------------------------------------------------------------ */
+
+function AppearanceSection({ theme, onTheme }: { theme: Theme; onTheme: (t: Theme) => void }) {
+  return (
+    <Card title="Appearance">
+      <fieldset>
+        <legend className="label">Theme</legend>
+        <div className="mt-2 grid max-w-md grid-cols-2 gap-2">
+          {(["dark", "light"] as const).map((t) => (
+            <label
+              key={t}
+              className={`flex cursor-pointer items-center gap-2 rounded-xl border p-3 text-sm ${theme === t ? "border-accent" : "border-line"}`}
+            >
+              <input
+                type="radio"
+                name="theme"
+                value={t}
+                checked={theme === t}
+                onChange={() => onTheme(t)}
+                className="accent-[rgb(var(--c-accent))]"
+              />
+              {t === "dark" ? "Dark" : "Light"}
+            </label>
+          ))}
+        </div>
+        <p className="hint">Applies immediately and is remembered on this device.</p>
+      </fieldset>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Names & labels                                                       */
+/* ------------------------------------------------------------------ */
+
+function LabelsSection({
+  settings,
+  onSave,
+}: {
+  settings: Settings;
+  onSave: (s: Settings) => void;
+}) {
+  const s = useSectionSave(onSave);
+  const [l, setL] = useState<Settings["labels"]>(() => JSON.parse(JSON.stringify(settings.labels)));
+  const update = (fn: (x: Settings["labels"]) => Settings["labels"]) => {
+    s.touch();
+    setL(fn);
+  };
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    s.save({ ...settings, labels: l });
+  }
+  const text = (
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    error?: string,
+    className = "",
+  ) => (
+    <Field label={label} error={error} className={className}>
+      {(p) => (
+        <input {...p} className="input" value={value} onChange={(e) => onChange(e.target.value)} />
+      )}
+    </Field>
+  );
+  return (
+    <form onSubmit={submit} noValidate>
+      <Card title="Names & labels">
+        <div className="grid gap-3 sm:grid-cols-2">
+          {text(
+            "App name",
+            l.appName,
+            (v) => update((x) => ({ ...x, appName: v })),
+            s.errors["labels.appName"],
+          )}
+          {text(
+            "Final level message",
+            l.finalMessage,
+            (v) => update((x) => ({ ...x, finalMessage: v })),
+            s.errors["labels.finalMessage"],
+          )}
+        </div>
+        <h3 className="mb-2 mt-5 text-sm font-semibold">Levels</h3>
+        <div className="space-y-3">
+          {LEVELS.map((lv) => (
+            <div key={lv} className="grid gap-3 sm:grid-cols-3">
+              {text(
+                `${lv} name`,
+                l.levels[lv].name,
+                (v) =>
+                  update((x) => ({
+                    ...x,
+                    levels: { ...x.levels, [lv]: { ...x.levels[lv], name: v } },
+                  })),
+                s.errors[`labels.levels.${lv}.name`],
+              )}
+              {text(
+                `${lv} meaning`,
+                l.levels[lv].meaning,
+                (v) =>
+                  update((x) => ({
+                    ...x,
+                    levels: { ...x.levels, [lv]: { ...x.levels[lv], meaning: v } },
+                  })),
+                s.errors[`labels.levels.${lv}.meaning`],
+                "sm:col-span-2",
+              )}
+            </div>
+          ))}
+        </div>
+        <h3 className="mb-2 mt-5 text-sm font-semibold">Buckets</h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {BUCKETS.map((b) => (
+            <div key={b}>
+              {text(
+                defaultSettings().labels.buckets[b],
+                l.buckets[b],
+                (v) => update((x) => ({ ...x, buckets: { ...x.buckets, [b]: v } })),
+                s.errors[`labels.buckets.${b}`],
+              )}
+            </div>
+          ))}
+        </div>
+        <SaveBar saved={s.saved} hasErrors={Object.keys(s.errors).length > 0} />
+      </Card>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Backup & data                                                        */
+/* ------------------------------------------------------------------ */
+
+type Pending = { kind: "reset" } | { kind: "delete" } | { kind: "import"; data: AppData } | null;
+
+function DataSection({
+  data,
+  today,
+  onSaveSettings,
+  onReplaceData,
+  onDeleteAll,
+  onAfterReset,
+}: Pick<Props, "data" | "today" | "onSaveSettings" | "onReplaceData" | "onDeleteAll"> & {
+  onAfterReset: () => void;
+}) {
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [pending, setPending] = useState<Pending>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   function save(filename: string, content: string, mime: string) {
     setExportError(null);
@@ -122,207 +533,24 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
     setPending({ kind: "import", data: result.data });
   }
 
-  const num = (
-    key: keyof Draft,
-    label: string,
-    opts: { hint?: string; errKey?: string; suffix?: string } = {},
-  ) => (
-    <Field label={label} error={errors[opts.errKey ?? key]} hint={opts.hint}>
-      {(p) => (
-        <div className="flex items-center gap-2">
-          <input
-            {...p}
-            className="input"
-            inputMode="decimal"
-            value={draft[key] as string}
-            onChange={(e) => set(key, e.target.value as never)}
-          />
-          {opts.suffix && <span className="text-sm text-muted">{opts.suffix}</span>}
-        </div>
-      )}
-    </Field>
-  );
-
-  const thresholdError = errors.thresholds;
-
   return (
     <div className="space-y-4">
-      <form onSubmit={submit} noValidate className="space-y-4">
-        <Card title="Survival budget">
-          <div className="grid gap-3 sm:grid-cols-2">
-            {num("monthlySurvivalB", "Monthly survival budget, B (₹)", {
-              hint: "Your essential monthly spend, post-tax.",
-            })}
-            {num("staleDays", "Stale after (days)", {
-              hint: "Holdings not updated for longer than this are flagged.",
-            })}
-          </div>
-        </Card>
-
-        <Card title="Level thresholds (coverage ratio)">
-          <div className="grid gap-3 sm:grid-cols-3">
-            {num("L1", "L1 from", { errKey: "thresholds.L1", suffix: "x" })}
-            {num("L2", "L2 from", { errKey: "thresholds.L2", suffix: "x" })}
-            {num("L3", "L3 from", { errKey: "thresholds.L3", suffix: "x" })}
-          </div>
-          {thresholdError && (
-            <p className="error" role="alert">
-              {thresholdError}
-            </p>
-          )}
-        </Card>
-
-        <Card title="ETA assumptions">
-          <p className="mb-3 text-sm text-muted">
-            Share of your average monthly income that goes into liquid buckets, by level.
-          </p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            {num("shareL0", "Savings share at L0", { errKey: "savingsShare.L0", suffix: "%" })}
-            {num("shareL1", "Savings share at L1", { errKey: "savingsShare.L1", suffix: "%" })}
-            {num("shareL2", "Savings share at L2", { errKey: "savingsShare.L2", suffix: "%" })}
-            {num("expectedReturn", "Expected annual return", { suffix: "%" })}
-            {num("inflationRate", "Inflation rate", { suffix: "%" })}
-          </div>
-        </Card>
-
-        <Card title="Tax">
-          <div className="flex items-center gap-2">
-            <input
-              id="taxEnabled"
-              type="checkbox"
-              className="h-4 w-4 accent-[rgb(var(--c-accent))]"
-              checked={draft.taxEnabled}
-              onChange={(e) => set("taxEnabled", e.target.checked)}
-            />
-            <label htmlFor="taxEnabled" className="text-sm">
-              Let me enter some income pre-tax and deduct tax automatically
-            </label>
-          </div>
-          {draft.taxEnabled && (
-            <div className="mt-3 max-w-xs">
-              {num("taxRate", "Tax rate", { errKey: "tax.rate", suffix: "%" })}
-            </div>
-          )}
-        </Card>
-
-        <Card title="Names and labels">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="App name" error={errors["labels.appName"]}>
-              {(p) => (
-                <input
-                  {...p}
-                  className="input"
-                  value={draft.labels.appName}
-                  onChange={(e) => setLabels((l) => ({ ...l, appName: e.target.value }))}
-                />
-              )}
-            </Field>
-            <Field label="Final level message" error={errors["labels.finalMessage"]}>
-              {(p) => (
-                <input
-                  {...p}
-                  className="input"
-                  value={draft.labels.finalMessage}
-                  onChange={(e) => setLabels((l) => ({ ...l, finalMessage: e.target.value }))}
-                />
-              )}
-            </Field>
-            {LEVELS.map((lv) => (
-              <fieldset key={lv} className="rounded-lg border border-line p-3 sm:col-span-2">
-                <legend className="px-1 text-xs font-semibold text-muted">Level {lv}</legend>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Field label="Name" error={errors[`labels.levels.${lv}.name`]}>
-                    {(p) => (
-                      <input
-                        {...p}
-                        className="input"
-                        value={draft.labels.levels[lv].name}
-                        onChange={(e) =>
-                          setLabels((l) => ({
-                            ...l,
-                            levels: {
-                              ...l.levels,
-                              [lv]: { ...l.levels[lv], name: e.target.value },
-                            },
-                          }))
-                        }
-                      />
-                    )}
-                  </Field>
-                  <Field
-                    label="Meaning"
-                    error={errors[`labels.levels.${lv}.meaning`]}
-                    className="sm:col-span-2"
-                  >
-                    {(p) => (
-                      <input
-                        {...p}
-                        className="input"
-                        value={draft.labels.levels[lv].meaning}
-                        onChange={(e) =>
-                          setLabels((l) => ({
-                            ...l,
-                            levels: {
-                              ...l.levels,
-                              [lv]: { ...l.levels[lv], meaning: e.target.value },
-                            },
-                          }))
-                        }
-                      />
-                    )}
-                  </Field>
-                </div>
-              </fieldset>
-            ))}
-            {BUCKETS.map((b) => (
-              <Field key={b} label={`Bucket label: ${b}`} error={errors[`labels.buckets.${b}`]}>
-                {(p) => (
-                  <input
-                    {...p}
-                    className="input"
-                    value={draft.labels.buckets[b]}
-                    onChange={(e) =>
-                      setLabels((l) => ({ ...l, buckets: { ...l.buckets, [b]: e.target.value } }))
-                    }
-                  />
-                )}
-              </Field>
-            ))}
-          </div>
-        </Card>
-
-        <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center gap-2 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-xl sm:border">
-          <button type="submit" className="btn btn-primary">
-            Save settings
-          </button>
-          <button type="button" className="btn" onClick={() => setPending({ kind: "reset" })}>
-            Reset to defaults
-          </button>
-          <span aria-live="polite" className="text-sm">
-            {saved && <span className="text-ok">Saved.</span>}
-            {Object.keys(errors).length > 0 && (
-              <span className="text-danger">Fix the highlighted fields.</span>
-            )}
-          </span>
-        </div>
-      </form>
-
-      <Card title="Data and backup">
+      <Card title="Backup">
         <p className="mb-3 text-sm text-muted">
           Everything is stored only on this device. Export a backup regularly.
         </p>
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            className="btn"
+            className="btn btn-primary"
             onClick={() =>
               save(`wealthy-backup-${today}.json`, exportJSON(data), "application/json")
             }
           >
-            Export data (JSON)
+            Export backup (JSON)
           </button>
           <button type="button" className="btn" onClick={() => fileRef.current?.click()}>
-            Import data (JSON)
+            Import backup (JSON)
           </button>
           <input
             ref={fileRef}
@@ -333,6 +561,18 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
             tabIndex={-1}
             onChange={onFile}
           />
+        </div>
+        <h3 className="mb-2 mt-5 text-sm font-semibold">Spreadsheets</h3>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="btn"
+            onClick={() =>
+              save(`wealthy-ledger-${today}.csv`, transactionsToCSV(data.transactions), "text/csv")
+            }
+          >
+            Export ledger (CSV)
+          </button>
           <button
             type="button"
             className="btn"
@@ -342,23 +582,12 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
           >
             Export holdings (CSV)
           </button>
-          <button
-            type="button"
-            className="btn"
-            onClick={() =>
-              save(`wealthy-income-${today}.csv`, incomeToCSV(data.income), "text/csv")
-            }
-          >
-            Export income (CSV)
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            onClick={() => setPending({ kind: "delete" })}
-          >
-            Delete all data
-          </button>
         </div>
+        {done && (
+          <div className="mt-3">
+            <Alert tone="ok">{done}</Alert>
+          </div>
+        )}
         {exportError && (
           <div className="mt-3" role="alert">
             <Alert tone="danger">{exportError}</Alert>
@@ -379,17 +608,34 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
         )}
       </Card>
 
+      <Card title="Reset and delete">
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn" onClick={() => setPending({ kind: "reset" })}>
+            Reset settings to defaults
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger"
+            onClick={() => setPending({ kind: "delete" })}
+          >
+            Delete all data
+          </button>
+        </div>
+      </Card>
+
       <ConfirmDialog
         open={pending?.kind === "reset"}
         title="Reset settings to defaults?"
-        message="Your survival budget will be kept. Thresholds, assumptions, tax and labels go back to defaults. Holdings and income are not touched."
+        message="Your survival budget is kept. Thresholds, income splits, tax and labels go back to defaults. Your ledger and holdings are not touched."
         confirmLabel="Reset"
         onCancel={() => setPending(null)}
         onConfirm={() => {
-          const next = { ...defaultSettings(), monthlySurvivalB: data.settings.monthlySurvivalB };
-          onSaveSettings(next);
-          setDraft(toDraft(next));
-          setErrors({});
+          onSaveSettings({
+            ...defaultSettings(),
+            monthlySurvivalB: data.settings.monthlySurvivalB,
+          });
+          onAfterReset();
+          setDone("Settings reset to defaults.");
           setPending(null);
         }}
       />
@@ -398,7 +644,7 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
         title="Overwrite all data?"
         message={
           pending?.kind === "import"
-            ? `Import ${pending.data.holdings.length} holdings, ${pending.data.income.length} income entries and ${pending.data.snapshots.length} snapshots. Your current data will be replaced.`
+            ? `Import ${pending.data.transactions.length} ledger entries, ${pending.data.holdings.length} holdings and ${pending.data.snapshots.length} history points. Your current data will be replaced.`
             : ""
         }
         confirmLabel="Overwrite"
@@ -407,7 +653,8 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
         onConfirm={() => {
           if (pending?.kind === "import") {
             onReplaceData(pending.data);
-            setDraft(toDraft(pending.data.settings));
+            onAfterReset();
+            setDone("Backup imported.");
           }
           setPending(null);
         }}
@@ -415,16 +662,73 @@ export function SettingsPanel({ data, today, onSaveSettings, onReplaceData, onDe
       <ConfirmDialog
         open={pending?.kind === "delete"}
         title="Delete all data?"
-        message="All holdings, income, history and settings will be erased from this browser. Export a backup first if you might need it."
+        message="Your whole ledger, holdings, history and settings will be erased from this device. Export a backup first if you might need it."
         confirmLabel="Delete everything"
         danger
         onCancel={() => setPending(null)}
         onConfirm={() => {
           onDeleteAll();
-          setDraft(toDraft(defaultSettings()));
+          onAfterReset();
+          setDone("All data deleted.");
           setPending(null);
         }}
       />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Shell                                                                */
+/* ------------------------------------------------------------------ */
+
+export function SettingsPanel(props: Props) {
+  const [section, setSection] = useState<SectionId>("budget");
+  // Bumped after a reset/import so section forms re-read the new settings.
+  const [version, setVersion] = useState(0);
+  const { data, onSaveSettings } = props;
+  const settings = data.settings;
+  const key = `${section}-${version}`;
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[200px_minmax(0,1fr)]">
+      <nav aria-label="Settings sections" className="min-w-0 md:sticky md:top-28 md:self-start">
+        <ul className="-mx-4 flex gap-1 overflow-x-auto px-4 md:mx-0 md:flex-col md:px-0">
+          {SECTIONS.map((sct) => (
+            <li key={sct.id}>
+              <button
+                type="button"
+                aria-current={section === sct.id ? "page" : undefined}
+                onClick={() => setSection(sct.id)}
+                className={`w-full whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium ${
+                  section === sct.id
+                    ? "bg-accent/15 text-accent"
+                    : "text-muted hover:bg-raised hover:text-fg"
+                }`}
+              >
+                {sct.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <div className="min-w-0">
+        {section === "budget" && (
+          <BudgetSection key={key} settings={settings} onSave={onSaveSettings} />
+        )}
+        {section === "split" && (
+          <SplitSection key={key} settings={settings} onSave={onSaveSettings} />
+        )}
+        {section === "tax" && <TaxSection key={key} settings={settings} onSave={onSaveSettings} />}
+        {section === "appearance" && (
+          <AppearanceSection theme={props.theme} onTheme={props.onTheme} />
+        )}
+        {section === "labels" && (
+          <LabelsSection key={key} settings={settings} onSave={onSaveSettings} />
+        )}
+        {section === "data" && (
+          <DataSection {...props} onAfterReset={() => setVersion((v) => v + 1)} />
+        )}
+      </div>
     </div>
   );
 }
