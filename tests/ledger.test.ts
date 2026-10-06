@@ -317,6 +317,15 @@ describe("holdings and the ledger", () => {
     expect(holdingUpdateEffects(h, { ...h, name: "Renamed" }, TODAY, ids())).toEqual([]);
   });
 
+  it("a cash balance change replaces the balance with no gain or loss entry", () => {
+    const cash: typeof h = { ...h, kind: "CASH", investedAmount: 50_000, currentValue: 50_000 };
+    const next = { ...cash, investedAmount: 80_000, currentValue: 80_000 };
+    expect(holdingUpdateEffects(cash, next, TODAY, ids())).toEqual([]);
+    // Moving it still carries the old balance across.
+    const moved = holdingUpdateEffects(cash, { ...next, bucket: "EMERGENCY" }, TODAY, ids());
+    expect(moved.map((t) => t.kind)).toEqual(["TRANSFER"]);
+  });
+
   it("moving a holding to another bucket transfers its value, then posts any change", () => {
     const fx = holdingUpdateEffects(
       h,

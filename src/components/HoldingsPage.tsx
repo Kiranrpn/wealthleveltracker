@@ -77,7 +77,14 @@ export function HoldingsPage({
       setQuickError("Enter a value of 0 or more");
       return;
     }
-    onUpdate({ ...h, currentValue: v, lastUpdated: today });
+    // A cash balance is a straight replace: no separate cost, so no gain or loss.
+    const isCash = h.kind === "CASH";
+    onUpdate({
+      ...h,
+      currentValue: v,
+      investedAmount: isCash ? v : h.investedAmount,
+      lastUpdated: today,
+    });
     setQuickId(null);
   }
 
@@ -230,14 +237,16 @@ export function HoldingsPage({
                             <p className="font-semibold tabular-nums">
                               {formatINR(h.currentValue)}
                             </p>
-                            <p
-                              className={`text-xs tabular-nums ${gain >= 0 ? "text-ok" : "text-danger"}`}
-                            >
-                              {gain >= 0 ? "+" : ""}
-                              {formatINRShort(gain)}
-                              {h.investedAmount > 0 && <> ({formatPct(gainPct)})</>} on{" "}
-                              {formatINRShort(h.investedAmount)}
-                            </p>
+                            {!isCash && (
+                              <p
+                                className={`text-xs tabular-nums ${gain >= 0 ? "text-ok" : "text-danger"}`}
+                              >
+                                {gain >= 0 ? "+" : ""}
+                                {formatINRShort(gain)}
+                                {h.investedAmount > 0 && <> ({formatPct(gainPct)})</>} on{" "}
+                                {formatINRShort(h.investedAmount)}
+                              </p>
+                            )}
                           </div>
                         </div>
                         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">

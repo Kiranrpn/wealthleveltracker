@@ -233,6 +233,21 @@ describe("holdings reconciliation", () => {
     await user.click(screen.getByRole("button", { name: "Add holding" }));
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
+    // A cash balance shows no gain or loss, and updating it simply replaces the balance.
+    const savings = screen.getByText("Savings account").closest("li") as HTMLElement;
+    expect(within(savings).queryByText(/ on ₹/)).not.toBeInTheDocument();
+    await user.click(
+      within(savings).getByRole("button", { name: "Update current value of Savings account" }),
+    );
+    const balance = within(savings).getByLabelText("New balance for Savings account");
+    await user.clear(balance);
+    await user.type(balance, "70000");
+    await user.click(within(savings).getByRole("button", { name: "Save" }));
+    expect(within(savings).getByText("₹70,000")).toBeInTheDocument();
+    expect(within(savings).queryByText(/ on ₹/)).not.toBeInTheDocument();
+    // No gain is posted: the ledger still says 3.1 L, holdings now 20 K over it.
+    expect(screen.getByText("Holdings ₹20,000 over ledger")).toBeInTheDocument();
+
     // Buckets start collapsed; the header toggles the list.
     const header = screen.getByRole("button", { name: /^Emergency/, expanded: true });
     await user.click(header);

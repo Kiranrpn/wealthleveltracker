@@ -296,7 +296,8 @@ export function holdingAddEffects(
 /**
  * Ledger entries for an edited holding:
  * - moved to another bucket: its old value is transferred across;
- * - value changed: the gain or loss is posted to the (new) bucket.
+ * - value changed: the gain or loss is posted to the (new) bucket. A cash balance has no
+ *   gain or loss: its new balance simply replaces the old one, with no ledger entry.
  */
 export function holdingUpdateEffects(
   prev: Holding,
@@ -319,7 +320,7 @@ export function holdingUpdateEffects(
     });
   }
   const delta = roundMoney(safeAmount(next.currentValue) - oldValue);
-  if (delta !== 0) {
+  if (delta !== 0 && next.kind !== "CASH") {
     out.push({
       kind: "ADJUST",
       id: newId(),
