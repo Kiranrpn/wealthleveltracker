@@ -134,7 +134,6 @@ npm run format
 ## Try it in your browser
 
 - **Locally:** `npm install && npm run dev`, then open http://localhost:5173.
-- **On the web (any device):** one-time setup in GitHub: **Settings > Pages > Build and deployment > Source: GitHub Actions**. After that, every push runs `.github/workflows/deploy-pages.yml` and the app is live at `https://<your-username>.github.io/wealthleveltracker/`. Re-run the workflow from the **Actions** tab after enabling Pages the first time.
 
 ## App icon
 
